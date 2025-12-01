@@ -88,6 +88,18 @@ export class SummaryQueryDto {
   customPeriod?: PeriodDto;
 }
 
+export class SummaryHistoryQueryDto {
+  @ApiProperty({ description: 'Período inicial no formato YYYY-MM.' })
+  @IsString()
+  @IsNotEmpty()
+  from!: string;
+
+  @ApiProperty({ description: 'Período final no formato YYYY-MM.' })
+  @IsString()
+  @IsNotEmpty()
+  to!: string;
+}
+
 export class TimeSeriesQueryDto {
   @ApiPropertyOptional({
     enum: TimeSeriesPeriodicity,
@@ -388,6 +400,14 @@ export class SummaryResponseDto {
 
   @ApiProperty({ type: SummaryDataDto })
   data!: SummaryDataDto;
+}
+
+export class SummaryHistoryResponseDto {
+  @ApiProperty()
+  success!: boolean;
+
+  @ApiProperty({ type: [SummaryDataDto] })
+  data!: SummaryDataDto[];
 }
 
 export class TimeSeriesResponseDto {

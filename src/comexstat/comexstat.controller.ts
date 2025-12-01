@@ -20,6 +20,8 @@ import {
   SummaryQueryDto,
   SummaryResponseDto,
   SummaryDataDto,
+  SummaryHistoryQueryDto,
+  SummaryHistoryResponseDto,
   TimeSeriesPeriodicity,
   TimeSeriesQueryDto,
   TimeSeriesSeries,
@@ -37,6 +39,7 @@ import {
 @ApiTags('comexstat')
 @ApiExtraModels(
   SummaryResponseDto,
+  SummaryHistoryResponseDto,
   SummaryDataDto,
   TimeSeriesResponseDto,
   TimeSeriesDataDto,
@@ -67,6 +70,24 @@ export class ComexstatController {
       query.period ?? SummaryPeriod.YEAR_TO_DATE,
       query.customPeriod,
     );
+
+    return { success: true, data };
+  }
+
+  @Get('summary-history')
+  @ApiOperation({ summary: 'Recupera dados do Quadro Resumo para múltiplos meses.' })
+  @ApiOkResponse({
+    description: 'Dados do quadro resumo por mês recuperados com sucesso.',
+    type: SummaryHistoryResponseDto,
+  })
+  async getSummaryHistory(
+    @Query(new ValidationPipe({ transform: true, whitelist: true }))
+    query: SummaryHistoryQueryDto,
+  ): Promise<SummaryHistoryResponseDto> {
+    const data = await this.comexstatService.getSummaryHistory({
+      from: query.from,
+      to: query.to,
+    });
 
     return { success: true, data };
   }

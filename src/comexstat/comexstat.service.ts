@@ -146,6 +146,103 @@ export class ComexstatService {
     });
   }
 
+  async getSummaryHistory(period: PeriodDto): Promise<SummaryDataDto[]> {
+    const monthRange = this.generateMonthsRange(period);
+
+    if (monthRange.length === 0) {
+      throw new BadRequestException('É necessário informar um intervalo de meses válido.');
+    }
+
+    const cacheKey = this.buildCacheKey('summary-history', period);
+
+    return this.getCachedValue(cacheKey, async () => {
+      const requestedKeys = new Set(monthRange.map((month) => month.key));
+      const monthMap = new Map<string, SummaryDataDto>();
+
+      monthRange.forEach(({ key, year, month }) => {
+        monthMap.set(key, {
+          period: `${this.formatMonthAbbreviation(month)}/${year}`,
+          exports: 0,
+          imports: 0,
+          tradeBalance: 0,
+          tradeCurrent: 0,
+        });
+      });
+
+      const queryPeriod = {
+        from: this.formatPeriod(monthRange[0].year, monthRange[0].month),
+        to: this.formatPeriod(monthRange[monthRange.length - 1].year, monthRange[monthRange.length - 1].month),
+      };
+
+      const [exportResponse, importResponse] = await Promise.all([
+        this.queryGeneral({
+          flow: TradeFlow.EXPORT,
+          monthDetail: true,
+          period: queryPeriod,
+          filters: [{ filter: 'state', values: [this.CEARA_STATE_ID] }],
+          metrics: ['metricFOB'],
+        }),
+        this.queryGeneral({
+          flow: TradeFlow.IMPORT,
+          monthDetail: true,
+          period: queryPeriod,
+          filters: [{ filter: 'state', values: [this.CEARA_STATE_ID] }],
+          metrics: ['metricFOB', 'metricCIF'],
+        }),
+      ]);
+
+      const handleResponse = (response: ComexStatResponse, kind: TradeFlow.EXPORT | TradeFlow.IMPORT) => {
+        response.data.list.forEach((item) => {
+          const monthNumberRaw = item.monthNumber ?? item.month;
+          const monthNumber = Number(monthNumberRaw);
+          const year = Number(item.year);
+
+          if (!Number.isFinite(monthNumber) || !Number.isFinite(year)) {
+            return;
+          }
+
+          const key = `${year}-${String(monthNumber).padStart(2, '0')}`;
+          if (!requestedKeys.has(key)) {
+            return;
+          }
+
+          const record = monthMap.get(key);
+          if (!record) {
+            return;
+          }
+
+          const value = this.toMillions(item.metricFOB);
+
+          if (kind === TradeFlow.EXPORT) {
+            record.exports = value;
+          } else {
+            record.imports = value;
+          }
+        });
+      };
+
+      handleResponse(exportResponse, TradeFlow.EXPORT);
+      handleResponse(importResponse, TradeFlow.IMPORT);
+
+      monthRange.forEach(({ key }) => {
+        const record = monthMap.get(key);
+        if (!record) {
+          return;
+        }
+
+        record.tradeBalance = (record.exports ?? 0) - (record.imports ?? 0);
+        record.tradeCurrent = (record.exports ?? 0) + (record.imports ?? 0);
+      });
+
+      return monthRange.map(({ key }) => {
+        const record = monthMap.get(key)!;
+        const [year, month] = key.split('-');
+        record.period = `${this.formatMonthAbbreviation(Number(month))}/${year}`;
+        return record;
+      });
+    });
+  }
+
   async getTimeSeries(
     periodicity: TimeSeriesPeriodicity,
     series: TimeSeriesSeries,
@@ -554,6 +651,48 @@ export class ComexstatService {
     });
   }
 
+  private parseMonth(value: string): { year: number; month: number } {
+    const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(value);
+
+    if (!match) {
+      throw new BadRequestException(
+        `Formato de mês inválido: ${value}. Use o padrão YYYY-MM.`,
+      );
+    }
+
+    return { year: Number(match[1]), month: Number(match[2]) };
+  }
+
+  private generateMonthsRange(period: PeriodDto): Array<{ year: number; month: number; key: string }> {
+    const start = this.parseMonth(period.from);
+    const end = this.parseMonth(period.to);
+
+    if (
+      start.year > end.year ||
+      (start.year === end.year && start.month > end.month)
+    ) {
+      throw new BadRequestException('O período inicial deve ser anterior ou igual ao período final.');
+    }
+
+    const months: Array<{ year: number; month: number; key: string }> = [];
+    let currentYear = start.year;
+    let currentMonth = start.month;
+
+    while (currentYear < end.year || (currentYear === end.year && currentMonth <= end.month)) {
+      const key = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
+      months.push({ year: currentYear, month: currentMonth, key });
+
+      if (currentMonth === 12) {
+        currentMonth = 1;
+        currentYear += 1;
+      } else {
+        currentMonth += 1;
+      }
+    }
+
+    return months;
+  }
+
   private buildCacheKey(segment: string, payload: unknown): string {
     return `${this.cacheNamespace}:${segment}:${this.serializeForCache(payload)}`;
   }
@@ -631,7 +770,7 @@ export class ComexstatService {
   }
 
   private formatMonthAbbreviation(month: number): string {
-    const date = new Date(Date.UTC(2000, month - 1, 1));
+    const date = new Date(Date.UTC(2000, month - 1, 15));
     return new Intl.DateTimeFormat('pt-BR', { month: 'short' })
       .format(date)
       .replace('.', '')
