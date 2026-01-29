@@ -17,7 +17,8 @@ import { ComexstatService, COMEXSTAT_HTTP_CLIENT } from './comexstat.service';
             'Content-Type': 'application/json',
           },
           httpsAgent: new Agent({
-            rejectUnauthorized: process.env.COMEXSTAT_ALLOW_INSECURE === 'strict',
+            rejectUnauthorized:
+              process.env.COMEXSTAT_ALLOW_INSECURE === 'strict',
           }),
         }),
     },

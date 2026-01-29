@@ -1,0 +1,27 @@
+IDTipoUsoSubstancia;DSTipoUsoSubstancia
+1;Construção civil
+2;Fabricação de ligas
+3;Ourivesaria
+4;Corretivo de solo
+5;Fabricação de cimento
+6;Fabricação de cal
+7;Revestimento
+8;Metalurgia
+9;Brita
+10;Fertilizantes
+11;Pigmento
+12;Fabricação de vidro
+13;Cerâmica vermelha
+14;Pedra de talhe
+15;Artesanato  mineral
+16;Pedra de coleção
+17;Pedra decorativa
+18;Energético
+19;Balneoterapia
+20;Engarrafamento
+21;Industrial
+22;Gema
+23;Abrasivo
+24;Insumo agrícola
+99;Demais substâncias
+9999;Não informado

@@ -71,7 +71,10 @@ describe('ComexstatService', () => {
           },
         });
 
-      const result = await service.getSummaryHistory({ from: '2024-01', to: '2024-03' });
+      const result = await service.getSummaryHistory({
+        from: '2024-01',
+        to: '2024-03',
+      });
 
       expect(httpMock.post).toHaveBeenCalledTimes(2);
       expect(httpMock.post).toHaveBeenNthCalledWith(
@@ -99,17 +102,35 @@ describe('ComexstatService', () => {
         { params: { language: 'pt' } },
       );
       expect(result).toEqual([
-        { period: 'jan/2024', exports: 1, imports: 0.2, tradeBalance: 0.8, tradeCurrent: 1.2 },
-        { period: 'fev/2024', exports: 2, imports: 0.1, tradeBalance: 1.9, tradeCurrent: 2.1 },
-        { period: 'mar/2024', exports: 0.5, imports: 0, tradeBalance: 0.5, tradeCurrent: 0.5 },
+        {
+          period: 'jan/2024',
+          exports: 1,
+          imports: 0.2,
+          tradeBalance: 0.8,
+          tradeCurrent: 1.2,
+        },
+        {
+          period: 'fev/2024',
+          exports: 2,
+          imports: 0.1,
+          tradeBalance: 1.9,
+          tradeCurrent: 2.1,
+        },
+        {
+          period: 'mar/2024',
+          exports: 0.5,
+          imports: 0,
+          tradeBalance: 0.5,
+          tradeCurrent: 0.5,
+        },
       ]);
       expect(cacheSet).toHaveBeenCalledTimes(1);
     });
 
     it('should throw when an invalid month format is provided', async () => {
-      await expect(service.getSummaryHistory({ from: '2024-13', to: '2024-14' })).rejects.toBeInstanceOf(
-        BadRequestException,
-      );
+      await expect(
+        service.getSummaryHistory({ from: '2024-13', to: '2024-14' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
       expect(httpMock.post).not.toHaveBeenCalled();
     });
   });

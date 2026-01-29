@@ -1,9 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import {
-  SigmineLayer,
-  type LayerGeoJsonDto,
-} from './dto/sigmine-layer.dto';
+import { SigmineLayer, type LayerGeoJsonDto } from './dto/sigmine-layer.dto';
 import { SigmineService } from './sigmine.service';
 
 @ApiTags('layers')

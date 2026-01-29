@@ -1,0 +1,65 @@
+IDUnidadeAdministrativaRegional;DSUnidadeAdministrativaRegional
+0;SEDE - DF
+1;Gerência Regional / RS
+2;Gerência Regional / SP
+3;Gerência Regional / MG
+4;Gerência Regional / PE
+5;Gerência Regional / PA
+6;Gerência Regional / GO
+7;Gerência Regional / BA
+8;Gerência Regional / AM
+9;Gerência Regional / RJ
+10;Gerência Regional / CE
+11;Gerência Regional / SC
+12;Gerência Regional / MT
+13;Gerência Regional / PR
+14;Gerência Regional / RN
+15;Gerência Regional / PB
+16;Gerência Regional / AP
+17;Gerência Regional / TO
+18;Gerência Regional / SE
+19;Gerência Regional / RO
+20;Gerência Regional / ES
+21;Gerência Regional / PI
+22;Gerência Regional / MA
+23;Gerência Regional / MS
+24;Gerência Regional / RR
+25;Gerência Regional / AL
+26;Unidade Avançada Itaituba-PA
+27;Escritório do Crato (Gerência Regional/CE)
+28;Escritório MCT (Gerência Regional/RJ)
+29;Escritório de Criciúma (Gerência Regional/SC)
+30;Escritório de Governador Valadares (Gerência Regional/MG)
+79;Administração Central
+98;*
+99;***
+31;Escritório de Poços de Caldas (Gerência Regional/MG)
+32;Escritório de Patos de Minas (Gerência Regional/MG
+40;Superintendência de Arrecadação e Fiscalização de Receitas
+41;Superintendência de Ordenamento Mineral e Disponibilidade de Áreas
+42;Superintendência de Regulação Econômica e Governança Regulatória
+43;Superintendência de Outorga de Títulos Minerários
+44;Superintendência de Fiscalização
+45;Superintendência de Segurança de Barragens e Pilhas de Mineração
+51;Superintendência de Pesquisa e Recursos Minerais
+52;Coordenação de Barragens de Mineração
+53;Divisão de Fiscalização de Barragens em Construção e à Montante
+54;Divisão de Fiscalização de Barragens de Mineração - Eixo Norte
+55;Divisão de Fiscalização de Barragens de Mineração - Eixo Sul
+56;Serviço de Fiscalização de Barragens de Mineração - Eixo Leste
+57;Serviço de Fiscalização de Barragens de Mineração - Eixo Oeste
+58;Gerência de Barragens de Mineração
+59;Coordenação de Fiscalização de Barragens - Eixo Norte
+60;Coordenação de Fiscalização de Barragens - Eixo Sul
+61;Coordenação de Fiscalização de Barragens - Eixo Leste
+62;Coordenação de Fiscalização de Barragens - Eixo Oeste
+63;Gerência de Riscos Geotécnicos em Barragens
+64;Coordenação de Barragens em Construção e a Montante
+65;Gerência de Pilhas de Mineração
+66;Coordenação de Fiscalização de Pilhas - Eixo Central
+67;Coordenação de Fiscalização de Pilhas - Eixo Norte-Sul
+46;Coordenação de Gerenciamento de Riscos Geotécnicos em Barragens de Mineração
+47;Coordenação de Planejamento e Gestão de Barragens de Mineração - Eixo Norte
+48;Coordenação de Planejamento e Gestão de Barragens de Mineração- Eixo Central/MG
+49;Coordenação de Planejamento e Gestão de Barragens de Mineração-Eixo Sul
+50;Divisão de Monitoramento Remoto de Barragens de Mineração

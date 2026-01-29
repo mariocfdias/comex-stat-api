@@ -1,0 +1,5 @@
+IDTipoRepresentacaoLegal;DSTipoRepresentacaoLegal
+1;Procuração
+2;Estatutária
+3;Diversos
+99;***

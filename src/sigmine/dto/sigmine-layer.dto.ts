@@ -1,13 +1,6 @@
-import type {
-  FeatureCollection,
-  GeoJsonProperties,
-  Geometry,
-} from 'geojson';
+import type { FeatureCollection, GeoJsonProperties, Geometry } from 'geojson';
 
-export type LayerGeoJsonDto = FeatureCollection<
-  Geometry,
-  GeoJsonProperties
->;
+export type LayerGeoJsonDto = FeatureCollection<Geometry, GeoJsonProperties>;
 
 export enum SigmineLayer {
   AREA_SERVIDAO = 'area-servidao',
@@ -24,5 +17,6 @@ export const SIGMINE_LAYER_SHAPEFILES: Record<SigmineLayer, string> = {
   [SigmineLayer.BLOQUEIO]: 'BLOQUEIO/BLOQUEIO.shp',
   [SigmineLayer.CE]: 'CE/CE.shp',
   [SigmineLayer.PROTECAO_FONTE]: 'PROTECAO_FONTE/PROTECAO_FONTE.shp',
-  [SigmineLayer.RESERVAS_GARIMPEIRAS]: 'RESERVAS_GARIMPEIRAS/RESERVAS_GARIMPEIRAS.shp',
+  [SigmineLayer.RESERVAS_GARIMPEIRAS]:
+    'RESERVAS_GARIMPEIRAS/RESERVAS_GARIMPEIRAS.shp',
 };

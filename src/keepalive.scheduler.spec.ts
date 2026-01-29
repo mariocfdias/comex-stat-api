@@ -11,8 +11,12 @@ describe('KeepaliveScheduler', () => {
   let debugSpy: jest.SpyInstance;
 
   beforeEach(() => {
-    warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
-    debugSpy = jest.spyOn(Logger.prototype, 'debug').mockImplementation(() => undefined);
+    warnSpy = jest
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
+    debugSpy = jest
+      .spyOn(Logger.prototype, 'debug')
+      .mockImplementation(() => undefined);
     scheduler = new KeepaliveScheduler();
   });
 

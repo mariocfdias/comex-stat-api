@@ -1,0 +1,4 @@
+IDMotivoEncerramentoSubstancia;DSMotivoEncerramentoSubstancia
+1;Esgotamento da Lavra
+2;Falta de interesse comercial
+99;Motivo desconhecido
