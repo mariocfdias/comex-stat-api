@@ -5,8 +5,9 @@ import { createWriteStream, createReadStream } from 'fs';
 import { pipeline } from 'stream/promises';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import * as AdmZip from 'adm-zip';
+import AdmZip = require('adm-zip');
 import * as readline from 'readline';
+import * as https from 'https';
 import {
   ProcessoEntity,
   FaseProcessoEntity,
@@ -36,18 +37,64 @@ export class ScmCsvService {
     }
   }
 
+  private async isDataFresh(): Promise<boolean> {
+    try {
+      // Check if extracted files exist and are less than 48 hours old
+      const extractedDir = path.join(this.dataDirectory, 'extracted', 'microdados-scm');
+      const processoFile = path.join(extractedDir, 'Processo.txt');
+
+      // Check if the main file exists
+      const existsSync = require('fs').existsSync as (path: string) => boolean;
+      if (!existsSync(processoFile)) {
+        return false;
+      }
+
+      // Check file modification time
+      const stats = await fs.stat(processoFile);
+      const fileAge = Date.now() - stats.mtime.getTime();
+      const maxAge = 48 * 60 * 60 * 1000; // 48 hours in milliseconds
+
+      const isFresh = fileAge < maxAge;
+
+      if (isFresh) {
+        const ageInHours = Math.floor(fileAge / (60 * 60 * 1000));
+        this.logger.log(`Data files are ${ageInHours} hours old (fresh, skipping download)`);
+      }
+
+      return isFresh;
+    } catch (error) {
+      return false;
+    }
+  }
+
   async downloadAndExtractData(): Promise<void> {
+    // Check if we have fresh data (less than 48 hours old)
+    const dataIsFresh = await this.isDataFresh();
+
+    if (dataIsFresh) {
+      this.logger.log('Using existing data files (less than 48 hours old)');
+      return;
+    }
+
     this.logger.log('Starting download of SCM data...');
 
     try {
       const zipPath = path.join(this.dataDirectory, 'microdados-scm.zip');
 
+      // Create HTTPS agent that accepts self-signed certificates
+      // This is necessary because the ANM server certificate has validation issues
+      const httpsAgent = new https.Agent({
+        rejectUnauthorized: false,
+      });
+
       // Download zip file
+      this.logger.log('Downloading zip file from ANM...');
       const response = await axios({
         method: 'GET',
         url: this.downloadUrl,
         responseType: 'stream',
         timeout: 300000, // 5 minutes timeout
+        httpsAgent,
       });
 
       // Save to file
@@ -68,7 +115,7 @@ export class ScmCsvService {
 
   private async extractZipFile(zipPath: string): Promise<void> {
     try {
-      const zip = new (AdmZip as any)(zipPath);
+      const zip = new AdmZip(zipPath);
       const outputPath = path.join(this.dataDirectory, 'extracted');
 
       await fs.mkdir(outputPath, { recursive: true });
@@ -179,11 +226,12 @@ export class ScmCsvService {
     // Try multiple possible locations for the file
     const staticPath = path.join(process.cwd(), 'static', 'SCM', fileName);
     const extractedPath = path.join(this.dataDirectory, 'extracted', fileName);
+    const extractedSubPath = path.join(this.dataDirectory, 'extracted', 'microdados-scm', fileName);
     const dataPath = path.join(this.dataDirectory, fileName);
 
     // Return the first one that exists (prioritize extracted/downloaded data)
     const existsSync = require('fs').existsSync as (path: string) => boolean;
-    for (const filePath of [extractedPath, dataPath, staticPath]) {
+    for (const filePath of [extractedSubPath, extractedPath, dataPath, staticPath]) {
       if (existsSync(filePath)) {
         return filePath;
       }
