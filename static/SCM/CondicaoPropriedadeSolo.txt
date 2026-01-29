@@ -1,9 +1,0 @@
-IDCondicaoPropriedadeSolo;DSCondicaoPropriedadeSolo
-1;Co-proprietário
-2;Terreno devoluto
-3;Propriedade de terceiros
-4;Posseiro
-5;Proprietário da área
-6;Proprietário ou posseiro de parte da área
-7;Imóvel pertencente a p jurídica de direito público
-50;Terreno da União

@@ -1,7 +1,0 @@
-IDTipoResponsabilidadeTecnica;DSTipoResponsabilidadeTecnica
-1;Plano de Pesquisa
-2;Memorial Descritivo
-3;Planta de Situação
-5;Projeto de perfuração de poço
-6;Diversos
-99;***
