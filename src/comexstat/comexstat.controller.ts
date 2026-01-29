@@ -1,10 +1,10 @@
+import { Controller, Get, Query, ValidationPipe } from '@nestjs/common';
 import {
-  Controller,
-  Get,
-  Query,
-  ValidationPipe,
-} from '@nestjs/common';
-import { ApiExtraModels, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+  ApiExtraModels,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 import {
   AggregationLevel,
   DashboardQueryDto,
@@ -32,9 +32,7 @@ import {
   TimeSeriesDataDto,
   TimeSeriesSectorDto,
 } from './dto/comexstat.dto';
-import {
-  ComexstatService,
-} from './comexstat.service';
+import { ComexstatService } from './comexstat.service';
 
 @ApiTags('comexstat')
 @ApiExtraModels(
@@ -75,7 +73,9 @@ export class ComexstatController {
   }
 
   @Get('summary-history')
-  @ApiOperation({ summary: 'Recupera dados do Quadro Resumo para múltiplos meses.' })
+  @ApiOperation({
+    summary: 'Recupera dados do Quadro Resumo para múltiplos meses.',
+  })
   @ApiOkResponse({
     description: 'Dados do quadro resumo por mês recuperados com sucesso.',
     type: SummaryHistoryResponseDto,

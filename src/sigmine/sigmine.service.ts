@@ -14,6 +14,7 @@ import {
   SigmineLayer,
   type LayerGeoJsonDto,
 } from './dto/sigmine-layer.dto';
+import { GeographicFilterService } from './services/geographic-filter.service';
 
 @Injectable()
 export class SigmineService {
@@ -23,6 +24,7 @@ export class SigmineService {
 
   constructor(
     @Inject(CACHE_MANAGER) private readonly cache: Cache,
+    private readonly geographicFilterService: GeographicFilterService,
   ) {}
 
   async getLayer(layer: SigmineLayer): Promise<LayerGeoJsonDto> {
@@ -37,14 +39,21 @@ export class SigmineService {
       return cached;
     }
 
-    const shpFullPath = path.resolve(
-      process.cwd(),
-      'static',
-      shapefilePath,
-    );
+    const shpFullPath = path.resolve(process.cwd(), 'static', shapefilePath);
 
     try {
-      const geoJson = (await shapefile.read(shpFullPath)) as LayerGeoJsonDto;
+      const rawGeoJson = (await shapefile.read(shpFullPath)) as LayerGeoJsonDto;
+      
+      // Apply Ceará geographic filter for all layers except CE itself
+      let geoJson: LayerGeoJsonDto;
+      if (layer === SigmineLayer.CE) {
+        // For CE layer, return the data as-is since it's already Ceará specific
+        geoJson = rawGeoJson;
+      } else {
+        // For other layers, filter to only include data within Ceará bounds
+        geoJson = await this.geographicFilterService.filterByCearaBounds(rawGeoJson);
+      }
+      
       await this.cache.set(cacheKey, geoJson, this.cacheTtlSeconds);
       return geoJson;
     } catch (error) {

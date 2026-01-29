@@ -1,0 +1,20 @@
+IDFaseProcesso;DSFaseProcesso
+0;Reconhecimento Geológico
+1;Requerimento de Pesquisa
+2;Autorização de Pesquisa
+3;Requerimento de Lavra
+4;Concessão de Lavra
+5;Requerimento de Lavra Garimpeira
+6;Lavra Garimpeira
+7;Licenciamento
+8;Disponibilidade
+9;Manifesto de Mina
+10;Manifesto de Jazida
+11;Requerimento de Registro de Extração
+12;Registro de Extração
+13;Requerimento de Licenciamento
+14;Direito de Requerer a Lavra
+15;Apto para Disponibilidade
+97;
+98;
+99;

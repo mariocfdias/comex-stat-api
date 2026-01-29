@@ -137,7 +137,8 @@ export class TimeSeriesQueryDto {
   @ApiPropertyOptional({
     type: Boolean,
     default: false,
-    description: 'Inclui o detalhamento por setor (seções ISIC) na série temporal.',
+    description:
+      'Inclui o detalhamento por setor (seções ISIC) na série temporal.',
   })
   @Transform(({ value }) => toBoolean(value))
   @IsBoolean()
@@ -149,7 +150,8 @@ export class PartnerCountriesQueryDto {
   @ApiPropertyOptional({
     enum: TradeFlow,
     default: TradeFlow.CURRENT,
-    description: 'Fluxo comercial: `export` (Exportações), `import` (Importações) ou `current` (saldo corrente).',
+    description:
+      'Fluxo comercial: `export` (Exportações), `import` (Importações) ou `current` (saldo corrente).',
   })
   @IsEnum(TradeFlow)
   @IsOptional()
@@ -188,7 +190,8 @@ export class TopProductsQueryDto {
   @ApiPropertyOptional({
     enum: TradeFlow,
     default: TradeFlow.EXPORT,
-    description: 'Fluxo comercial: `export` (Exportações) ou `import` (Importações).',
+    description:
+      'Fluxo comercial: `export` (Exportações) ou `import` (Importações).',
   })
   @IsEnum(TradeFlow)
   @IsIn([TradeFlow.EXPORT, TradeFlow.IMPORT])
@@ -214,7 +217,8 @@ export class TopProductsQueryDto {
 
   @ApiPropertyOptional({
     type: PeriodDto,
-    description: 'Período personalizado específico para consulta (intervalo YYYY-MM).',
+    description:
+      'Período personalizado específico para consulta (intervalo YYYY-MM).',
   })
   @ValidateNested()
   @Type(() => PeriodDto)
@@ -224,7 +228,8 @@ export class TopProductsQueryDto {
   @ApiPropertyOptional({
     enum: AggregationLevel,
     default: AggregationLevel.HEADING,
-    description: 'Nível de agregação: `ncm` (8 dígitos), `heading` (4 dígitos) ou `chapter` (2 dígitos).',
+    description:
+      'Nível de agregação: `ncm` (8 dígitos), `heading` (4 dígitos) ou `chapter` (2 dígitos).',
   })
   @IsEnum(AggregationLevel)
   @IsOptional()
@@ -245,7 +250,8 @@ export class NationalComparisonQueryDto {
   @ApiPropertyOptional({
     enum: TradeFlow,
     default: TradeFlow.EXPORT,
-    description: 'Fluxo comercial: `export` (Exportações) ou `import` (Importações).',
+    description:
+      'Fluxo comercial: `export` (Exportações) ou `import` (Importações).',
   })
   @IsEnum(TradeFlow)
   @IsIn([TradeFlow.EXPORT, TradeFlow.IMPORT])
@@ -270,7 +276,8 @@ export class NationalComparisonQueryDto {
 export class DashboardQueryDto {
   @ApiPropertyOptional({
     type: Number,
-    description: 'Define qual ano deve ser usado para preencher os dados do painel.',
+    description:
+      'Define qual ano deve ser usado para preencher os dados do painel.',
   })
   @Type(() => Number)
   @IsInt()

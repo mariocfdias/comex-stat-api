@@ -1,0 +1,13 @@
+IDSituacaoDocumentoLegal;DSSituacaoDocumentoLegal
+1;Outorgado
+2;Renovado
+3;Prorrogado
+4;Retificado
+5;Nulo
+6;Caduco/decaído/revogado
+7;Cancelado
+8;Cassado
+9;Suspenso
+10;Suspensão encerrada
+11;Prorrogado - Covid 19
+99;Concedido (anterior à carga)

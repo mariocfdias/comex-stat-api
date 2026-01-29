@@ -1,0 +1,13 @@
+IDTipoDocumentoLegal;DSTipoDocumentoLegal
+1;Alvará de Pesquisa
+2;Permissão de Lavra Garimpeira
+3;Registro de Licença
+4;Portaria de Lavra
+5;Manifesto de Jazida
+6;Manifesto de Mina
+7;Registro de Grupamento Mineiro
+8;Permissão de Reconhecimento Geológico
+9;Decreto de Consórcio de Mineração
+10;Englobamento
+11;Registro de Extração
+99;***

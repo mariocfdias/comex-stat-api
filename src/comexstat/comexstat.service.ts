@@ -70,7 +70,10 @@ export class ComexstatService {
     periodType: SummaryPeriod,
     customPeriod?: PeriodDto,
   ): Promise<SummaryDataDto> {
-    const cacheKey = this.buildCacheKey('summary', { periodType, customPeriod });
+    const cacheKey = this.buildCacheKey('summary', {
+      periodType,
+      customPeriod,
+    });
 
     return this.getCachedValue(cacheKey, async () => {
       const { currentYear, currentMonth, previousMonth, previousMonthYear } =
@@ -106,7 +109,9 @@ export class ComexstatService {
 
         case SummaryPeriod.CUSTOM:
           if (!customPeriod) {
-            throw new BadRequestException('Custom period is required when period type is custom.');
+            throw new BadRequestException(
+              'Custom period is required when period type is custom.',
+            );
           }
           period = customPeriod;
           periodLabel = `${customPeriod.from} - ${customPeriod.to}`;
@@ -133,8 +138,12 @@ export class ComexstatService {
         }),
       ]);
 
-      const exportsValue = this.toMillions(exportResponse.data.list[0]?.metricFOB ?? 0);
-      const importsValue = this.toMillions(importResponse.data.list[0]?.metricFOB ?? 0);
+      const exportsValue = this.toMillions(
+        exportResponse.data.list[0]?.metricFOB ?? 0,
+      );
+      const importsValue = this.toMillions(
+        importResponse.data.list[0]?.metricFOB ?? 0,
+      );
 
       return {
         period: periodLabel,
@@ -150,7 +159,9 @@ export class ComexstatService {
     const monthRange = this.generateMonthsRange(period);
 
     if (monthRange.length === 0) {
-      throw new BadRequestException('É necessário informar um intervalo de meses válido.');
+      throw new BadRequestException(
+        'É necessário informar um intervalo de meses válido.',
+      );
     }
 
     const cacheKey = this.buildCacheKey('summary-history', period);
@@ -171,7 +182,10 @@ export class ComexstatService {
 
       const queryPeriod = {
         from: this.formatPeriod(monthRange[0].year, monthRange[0].month),
-        to: this.formatPeriod(monthRange[monthRange.length - 1].year, monthRange[monthRange.length - 1].month),
+        to: this.formatPeriod(
+          monthRange[monthRange.length - 1].year,
+          monthRange[monthRange.length - 1].month,
+        ),
       };
 
       const [exportResponse, importResponse] = await Promise.all([
@@ -191,7 +205,10 @@ export class ComexstatService {
         }),
       ]);
 
-      const handleResponse = (response: ComexStatResponse, kind: TradeFlow.EXPORT | TradeFlow.IMPORT) => {
+      const handleResponse = (
+        response: ComexStatResponse,
+        kind: TradeFlow.EXPORT | TradeFlow.IMPORT,
+      ) => {
         response.data.list.forEach((item) => {
           const monthNumberRaw = item.monthNumber ?? item.month;
           const monthNumber = Number(monthNumberRaw);
@@ -311,7 +328,9 @@ export class ComexstatService {
         });
       }
 
-      const responses = await Promise.all(requests.map(({ response }) => response));
+      const responses = await Promise.all(
+        requests.map(({ response }) => response),
+      );
       const dataMap = new Map<string, TimeSeriesDataDto>();
 
       responses.forEach((response, index) => {
@@ -324,7 +343,9 @@ export class ComexstatService {
               ? String(monthNumber).padStart(2, '0')
               : undefined;
           const key =
-            monthDetail && monthKey ? `${item.year}-${monthKey}` : String(item.year);
+            monthDetail && monthKey
+              ? `${item.year}-${monthKey}`
+              : String(item.year);
 
           if (!dataMap.has(key)) {
             dataMap.set(key, {
@@ -415,7 +436,9 @@ export class ComexstatService {
           break;
         case SummaryPeriod.CUSTOM:
           if (!customPeriod) {
-            throw new BadRequestException('Custom period is required when period type is custom.');
+            throw new BadRequestException(
+              'Custom period is required when period type is custom.',
+            );
           }
           period = customPeriod;
           break;
@@ -456,7 +479,9 @@ export class ComexstatService {
         });
       }
 
-      const responses = await Promise.all(requests.map(({ response }) => response));
+      const responses = await Promise.all(
+        requests.map(({ response }) => response),
+      );
       const countryMap = new Map<string, PartnerCountryDto>();
 
       responses.forEach((response, index) => {
@@ -507,7 +532,8 @@ export class ComexstatService {
               ? item.imports
               : item.current;
 
-        item.percentage = total > 0 && base !== undefined ? (base / total) * 100 : 0;
+        item.percentage =
+          total > 0 && base !== undefined ? (base / total) * 100 : 0;
       });
 
       const sortKey =
@@ -533,7 +559,10 @@ export class ComexstatService {
     const cacheKey = this.buildCacheKey('products', {
       flow,
       periodicity,
-      period: typeof period === 'number' || period === undefined ? period : { ...period },
+      period:
+        typeof period === 'number' || period === undefined
+          ? period
+          : { ...period },
       aggregation,
       topN,
     });
@@ -562,11 +591,12 @@ export class ComexstatService {
         metrics: ['metricFOB', 'metricKG'],
       });
 
-      const fieldMap: Record<AggregationLevel, { code: string; desc: string }> = {
-        [AggregationLevel.NCM]: { code: 'ncmCode', desc: 'ncm' },
-        [AggregationLevel.HEADING]: { code: 'headingCode', desc: 'heading' },
-        [AggregationLevel.CHAPTER]: { code: 'chapterCode', desc: 'chapter' },
-      };
+      const fieldMap: Record<AggregationLevel, { code: string; desc: string }> =
+        {
+          [AggregationLevel.NCM]: { code: 'ncmCode', desc: 'ncm' },
+          [AggregationLevel.HEADING]: { code: 'headingCode', desc: 'heading' },
+          [AggregationLevel.CHAPTER]: { code: 'chapterCode', desc: 'chapter' },
+        };
 
       const fields = fieldMap[aggregation];
       const products: ProductDto[] = [];
@@ -589,7 +619,8 @@ export class ComexstatService {
       });
 
       products.forEach((product) => {
-        product.percentage = totalValue > 0 ? (product.value / totalValue) * 100 : 0;
+        product.percentage =
+          totalValue > 0 ? (product.value / totalValue) * 100 : 0;
       });
 
       products.sort((a, b) => b.value - a.value);
@@ -608,30 +639,33 @@ export class ComexstatService {
     });
 
     return this.getCachedValue(cacheKey, async () => {
-      const [nationalResponse, cearaResponse, statesResponse] = await Promise.all([
-        this.queryGeneral({
-          flow,
-          monthDetail: false,
-          period,
-          metrics: ['metricFOB'],
-        }),
-        this.queryGeneral({
-          flow,
-          monthDetail: false,
-          period,
-          filters: [{ filter: 'state', values: [this.CEARA_STATE_ID] }],
-          metrics: ['metricFOB'],
-        }),
-        this.queryGeneral({
-          flow,
-          monthDetail: false,
-          period,
-          details: ['state'],
-          metrics: ['metricFOB'],
-        }),
-      ]);
+      const [nationalResponse, cearaResponse, statesResponse] =
+        await Promise.all([
+          this.queryGeneral({
+            flow,
+            monthDetail: false,
+            period,
+            metrics: ['metricFOB'],
+          }),
+          this.queryGeneral({
+            flow,
+            monthDetail: false,
+            period,
+            filters: [{ filter: 'state', values: [this.CEARA_STATE_ID] }],
+            metrics: ['metricFOB'],
+          }),
+          this.queryGeneral({
+            flow,
+            monthDetail: false,
+            period,
+            details: ['state'],
+            metrics: ['metricFOB'],
+          }),
+        ]);
 
-      const nationalTotal = Number(nationalResponse.data.list[0]?.metricFOB ?? 0);
+      const nationalTotal = Number(
+        nationalResponse.data.list[0]?.metricFOB ?? 0,
+      );
       const cearaTotal = Number(cearaResponse.data.list[0]?.metricFOB ?? 0);
 
       const participation =
@@ -663,7 +697,9 @@ export class ComexstatService {
     return { year: Number(match[1]), month: Number(match[2]) };
   }
 
-  private generateMonthsRange(period: PeriodDto): Array<{ year: number; month: number; key: string }> {
+  private generateMonthsRange(
+    period: PeriodDto,
+  ): Array<{ year: number; month: number; key: string }> {
     const start = this.parseMonth(period.from);
     const end = this.parseMonth(period.to);
 
@@ -671,14 +707,19 @@ export class ComexstatService {
       start.year > end.year ||
       (start.year === end.year && start.month > end.month)
     ) {
-      throw new BadRequestException('O período inicial deve ser anterior ou igual ao período final.');
+      throw new BadRequestException(
+        'O período inicial deve ser anterior ou igual ao período final.',
+      );
     }
 
     const months: Array<{ year: number; month: number; key: string }> = [];
     let currentYear = start.year;
     let currentMonth = start.month;
 
-    while (currentYear < end.year || (currentYear === end.year && currentMonth <= end.month)) {
+    while (
+      currentYear < end.year ||
+      (currentYear === end.year && currentMonth <= end.month)
+    ) {
       const key = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
       months.push({ year: currentYear, month: currentMonth, key });
 
@@ -705,15 +746,18 @@ export class ComexstatService {
       if (input && typeof input === 'object') {
         return Object.keys(input as Record<string, unknown>)
           .sort()
-          .reduce((acc, key) => {
-            const normalizedValue = normalize(
-              (input as Record<string, unknown>)[key],
-            );
-            if (normalizedValue !== undefined) {
-              acc[key] = normalizedValue;
-            }
-            return acc;
-          }, {} as Record<string, unknown>);
+          .reduce(
+            (acc, key) => {
+              const normalizedValue = normalize(
+                (input as Record<string, unknown>)[key],
+              );
+              if (normalizedValue !== undefined) {
+                acc[key] = normalizedValue;
+              }
+              return acc;
+            },
+            {} as Record<string, unknown>,
+          );
       }
       return input;
     };
@@ -721,7 +765,10 @@ export class ComexstatService {
     return JSON.stringify(normalize(value));
   }
 
-  private async getCachedValue<T>(key: string, resolver: () => Promise<T>): Promise<T> {
+  private async getCachedValue<T>(
+    key: string,
+    resolver: () => Promise<T>,
+  ): Promise<T> {
     if (!this.cache) {
       return resolver();
     }
@@ -752,7 +799,9 @@ export class ComexstatService {
     previousMonthYear: number;
   } {
     const now = new Date();
-    const reference = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const reference = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+    );
     reference.setUTCMonth(reference.getUTCMonth() - 2);
 
     const currentYear = reference.getUTCFullYear();
@@ -779,7 +828,9 @@ export class ComexstatService {
 
   private toMillions(value: unknown): number {
     const numericValue =
-      typeof value === 'string' ? Number(value.replace(',', '.')) : Number(value);
+      typeof value === 'string'
+        ? Number(value.replace(',', '.'))
+        : Number(value);
 
     if (!Number.isFinite(numericValue)) {
       return 0;
@@ -788,11 +839,17 @@ export class ComexstatService {
     return numericValue / 1_000_000;
   }
 
-  private async queryGeneral(params: GeneralQueryParams): Promise<ComexStatResponse> {
+  private async queryGeneral(
+    params: GeneralQueryParams,
+  ): Promise<ComexStatResponse> {
     try {
-      const response = await this.http.post<ComexStatResponse>('/general', params, {
-        params: { language: 'pt' },
-      });
+      const response = await this.http.post<ComexStatResponse>(
+        '/general',
+        params,
+        {
+          params: { language: 'pt' },
+        },
+      );
 
       if (!response.data?.success) {
         throw new ServiceUnavailableException(
@@ -816,11 +873,15 @@ export class ComexstatService {
         const message =
           typeof error.response.data === 'string'
             ? error.response.data
-            : error.response.data?.message ?? 'ComexStat API request failed.';
+            : (error.response.data?.message ?? 'ComexStat API request failed.');
 
-        throw new HttpException(message, error.response.status ?? HttpStatus.BAD_GATEWAY, {
-          cause: error,
-        });
+        throw new HttpException(
+          message,
+          error.response.status ?? HttpStatus.BAD_GATEWAY,
+          {
+            cause: error,
+          },
+        );
       }
 
       throw new ServiceUnavailableException('Unable to reach ComexStat API.');

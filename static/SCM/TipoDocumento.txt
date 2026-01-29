@@ -1,0 +1,62 @@
+IDTipoDocumento;DSTipoDocumento
+1;Memorial descritivo
+2;Planta de situação da área
+3;Plano dos trabalhos de pesquisa
+4;Certidão de registro no DNRC
+5;Plano de aproveitamento econômico
+6;Memorial justificativo de desmembramento
+7;Memorial justificativo de consórcio
+8;Estatutos do consórcio de mineração
+9;Planta de detalhe da área
+10;Orçamento de pesquisa
+11;Cronograma de pesquisa
+12;Licença (s) municipal (is)
+13;Assentimento ent. pública- área pública
+14;Visto do CREA jurisdição area da jazida
+15;Declaração de propriedade do solo
+16;Prova de recolhimento de emolumentos
+17;Licença do órgão  ambiental
+18;Memorial explicativo grupamento mineiro
+19;Autorização do proprietário do solo
+20;Instrumento de mandato de procuração
+21;Ato da constituição da firma individual
+22;Comprovação da nacionalidade brasileira
+23;Indicação do estado civil
+24;Indicação da profissão
+25;Indicação do domicílio
+26;Indicação do número de inscrição no CPF
+27;Indicação do número de inscrição no CGC
+28;Plano de trabalho
+29;Servidões
+30;Prova de disponibilidade de fundos
+31;Método de  mineração
+32;Indicação dos decretos de concessão
+33;Planta com as áreas de lavra
+34;Indicação do nome do requerente
+35;Indicação da razão social da empresa
+36;Indicação do nº registro no órgão de reg
+37;A.R.T. do plano de pesquisa
+38;A.R.T. do memorial descritivo
+39;A.R.T. da planta de situação/detalhe 
+40;Indicativo da UF
+41;Prova n°registro no org.de reg. comércio
+42;Prova do n° de inscrição no CNPJ
+43;Copia dos estatutos ou contrato social
+44;Prova do n° de inscrição no CPF
+45;Declaração de firma individual
+46;Autorização do titular/direito minerário
+47;Licença de operação do org. ambiental
+48;Assentimento da ent. pública-área urbana
+49;Planta de detalhe área-Esc.1:2000/25.000
+50;A.R.T. do Plano de Aproveitamento Economico da Jazida
+51;Plano Integrado de Aproveitamento Economico das Jazidas
+52;Justificativa téncica e econômica da necessidade de englobamento das áreas
+53;Escritura pública ou instrumento particular de Cessão Parcial com firma reconhecida
+54;Memorial Descritivo da área remanescente
+55;Planta de situação da área remanescente
+56;Planta de detalhe da área remanescente
+57;Certidão de registro na Junta Comercial
+58;Ata da Assembléia Geral Cooperativa
+59;Contrato Social ou procuração de representação dos sócios signatários do instrumento de cessão
+60;A.R.T. do Plano de aproveitamento econômico
+61;Estudo para redimensionamento das reservas
