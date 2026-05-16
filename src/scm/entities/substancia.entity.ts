@@ -1,15 +1,10 @@
-import { Entity, PrimaryColumn, Column, OneToMany } from 'typeorm';
-import { ProcessoSubstancia } from './processo-substancia.entity';
+import { Entity, PrimaryColumn, Column } from 'typeorm';
 
-@Entity('substancias')
+@Entity('scm_substancias')
 export class Substancia {
-  @PrimaryColumn({ type: 'integer' })
+  @PrimaryColumn({ name: 'id_substancia', type: 'integer' })
   IDSubstancia: number;
 
-  @Column({ type: 'varchar', length: 200, nullable: true })
+  @Column({ name: 'nm_substancia', type: 'varchar', length: 200, nullable: true })
   NMSubstancia: string;
-
-  // Relationships
-  @OneToMany(() => ProcessoSubstancia, ps => ps.substancia)
-  processoSubstancias?: ProcessoSubstancia[];
 }

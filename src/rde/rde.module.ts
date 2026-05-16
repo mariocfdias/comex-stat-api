@@ -1,35 +1,16 @@
 import { Module } from '@nestjs/common';
-import axios from 'axios';
-import { Agent } from 'node:https';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { RdeController } from './rde.controller';
-import { RdeService, RDE_HTTP_CLIENT } from './rde.service';
+import { RdeService } from './rde.service';
+import { RdeTodosRegistros } from './entities/rde-todos-registros.entity';
+import { RdeRegistrosIed } from './entities/rde-registros-ied.entity';
 
 @Module({
-  controllers: [RdeController],
-  providers: [
-    {
-      provide: RDE_HTTP_CLIENT,
-      useFactory: () =>
-        axios.create({
-          baseURL:
-            'https://olinda.bcb.gov.br/olinda/servico/RDE_Publicacao/versao/v1/odata',
-          timeout: 60_000,
-          headers: {
-            Accept: 'application/json;odata.metadata=minimal',
-          },
-          httpsAgent: new Agent({
-            rejectUnauthorized: process.env.RDE_ALLOW_INSECURE !== 'false',
-          }),
-          paramsSerializer: {
-            encode: (value: string) => {
-              // Codifica espaços como %20 para compatibilidade com OData
-              return encodeURIComponent(value).replace(/%2C/g, ',');
-            },
-          },
-        }),
-    },
-    RdeService,
+  imports: [
+    TypeOrmModule.forFeature([RdeTodosRegistros, RdeRegistrosIed]),
   ],
+  controllers: [RdeController],
+  providers: [RdeService],
   exports: [RdeService],
 })
 export class RdeModule {}

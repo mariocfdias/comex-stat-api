@@ -95,14 +95,12 @@ export class ScmRepositoryService {
         this.logger.debug(`Inserted PM chunk ${Math.floor(i/chunkSize) + 1}/${Math.ceil(uniqueRelacoes.length/chunkSize)}`);
       } catch (error) {
         this.logger.error(`Error inserting processo-municipio chunk ${i}-${i+chunkSize}:`, error);
-        // Try inserting one by one to skip problematic records
-        for (const item of chunk) {
-          try {
-            await this.processoMunicipioRepository.save(item);
-          } catch (itemError) {
-            this.logger.warn(`Skipping duplicate processo-municipio: ${item.DSProcesso}-${item.IDMunicipio}`);
-          }
-        }
+        await this.processoMunicipioRepository
+          .createQueryBuilder()
+          .insert()
+          .orIgnore()
+          .values(chunk as any)
+          .execute();
       }
     }
   }
@@ -125,14 +123,12 @@ export class ScmRepositoryService {
         this.logger.debug(`Inserted PS chunk ${Math.floor(i/chunkSize) + 1}/${Math.ceil(uniqueRelacoes.length/chunkSize)}`);
       } catch (error) {
         this.logger.error(`Error inserting processo-substancia chunk ${i}-${i+chunkSize}:`, error);
-        // Try inserting one by one to skip problematic records
-        for (const item of chunk) {
-          try {
-            await this.processoSubstanciaRepository.save(item);
-          } catch (itemError) {
-            this.logger.warn(`Skipping duplicate processo-substancia: ${item.DSProcesso}-${item.IDSubstancia}`);
-          }
-        }
+        await this.processoSubstanciaRepository
+          .createQueryBuilder()
+          .insert()
+          .orIgnore()
+          .values(chunk as any)
+          .execute();
       }
     }
   }

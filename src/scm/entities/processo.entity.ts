@@ -1,59 +1,42 @@
-import { Entity, PrimaryColumn, Column, ManyToOne, OneToMany, JoinColumn } from 'typeorm';
-import { FaseProcesso } from './fase-processo.entity';
-import { TipoRequerimento } from './tipo-requerimento.entity';
-import { ProcessoMunicipio } from './processo-municipio.entity';
-import { ProcessoSubstancia } from './processo-substancia.entity';
+import { Entity, PrimaryColumn, Column, Index } from 'typeorm';
 
-@Entity('processos')
+@Entity('scm_processos')
+@Index(['IDFaseProcesso'])
+@Index(['IDTipoRequerimento'])
 export class Processo {
-  @PrimaryColumn({ type: 'varchar', length: 50 })
+  @PrimaryColumn({ name: 'ds_processo', type: 'varchar', length: 50 })
   DSProcesso: string;
 
-  @Column({ type: 'varchar', length: 20, nullable: true })
+  @Column({ name: 'nr_processo', type: 'varchar', length: 20, nullable: true })
   NRProcesso: string;
 
-  @Column({ type: 'varchar', length: 4, nullable: true })
+  @Column({ name: 'nr_ano_processo', type: 'varchar', length: 4, nullable: true })
   NRAnoProcesso: string;
 
-  @Column({ type: 'varchar', length: 1, nullable: true })
+  @Column({ name: 'bt_ativo', type: 'varchar', length: 1, nullable: true })
   BTAtivo: string;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ name: 'nr_nup', type: 'varchar', length: 100, nullable: true })
   NRNUP: string;
 
-  @Column({ type: 'integer', nullable: true })
+  @Column({ name: 'id_tipo_requerimento', type: 'integer', nullable: true })
   IDTipoRequerimento: number;
 
-  @Column({ type: 'integer', nullable: true })
+  @Column({ name: 'id_fase_processo', type: 'integer', nullable: true })
   IDFaseProcesso: number;
 
-  @Column({ type: 'integer', nullable: true })
+  @Column({ name: 'id_unidade_administrativa_regional', type: 'integer', nullable: true })
   IDUnidadeAdministrativaRegional: number;
 
-  @Column({ type: 'integer', nullable: true })
+  @Column({ name: 'id_unidade_protocolizadora', type: 'integer', nullable: true })
   IDUnidadeProtocolizadora: number;
 
-  @Column({ type: 'varchar', length: 30, nullable: true })
+  @Column({ name: 'dt_protocolo', type: 'varchar', length: 30, nullable: true })
   DTProtocolo: string;
 
-  @Column({ type: 'varchar', length: 30, nullable: true })
+  @Column({ name: 'dt_prioridade', type: 'varchar', length: 30, nullable: true })
   DTPrioridade: string;
 
-  @Column({ type: 'varchar', length: 20, nullable: true })
+  @Column({ name: 'qt_area_ha', type: 'varchar', length: 20, nullable: true })
   QTAreaHA: string;
-
-  // Relationships
-  @ManyToOne(() => FaseProcesso, { nullable: true, lazy: true })
-  @JoinColumn({ name: 'IDFaseProcesso' })
-  fase?: FaseProcesso;
-
-  @ManyToOne(() => TipoRequerimento, { nullable: true, lazy: true })
-  @JoinColumn({ name: 'IDTipoRequerimento' })
-  tipo?: TipoRequerimento;
-
-  @OneToMany(() => ProcessoMunicipio, pm => pm.processo, { lazy: true })
-  processoMunicipios?: ProcessoMunicipio[];
-
-  @OneToMany(() => ProcessoSubstancia, ps => ps.processo, { lazy: true })
-  processoSubstancias?: ProcessoSubstancia[];
 }

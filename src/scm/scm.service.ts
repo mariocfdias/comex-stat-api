@@ -1,6 +1,4 @@
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
-import { ScmCsvService } from './scm-csv.service';
-import { ScmSchedulerService } from './scm-scheduler.service';
+import { Injectable, Logger } from '@nestjs/common';
 import { ScmRepositoryService } from './scm-repository.service';
 import {
   Processo,
@@ -13,23 +11,11 @@ import {
 } from './entities';
 
 @Injectable()
-export class ScmService implements OnApplicationBootstrap {
+export class ScmService {
   private readonly logger = new Logger(ScmService.name);
 
-  constructor(
-    private readonly csvService: ScmCsvService,
-    private readonly schedulerService: ScmSchedulerService,
-    private readonly repositoryService: ScmRepositoryService,
-  ) {}
+  constructor(private readonly repositoryService: ScmRepositoryService) {}
 
-  async onApplicationBootstrap(): Promise<void> {
-    // Load initial data if database is empty
-    // TEMPORARILY DISABLED: uncomment after fixing data download
-    // await this.schedulerService.loadInitialDataIfNeeded();
-    this.logger.log('Skipping initial data load. Use manual trigger to load data.');
-  }
-
-  // Data retrieval methods (now from database)
   async getProcessos(): Promise<Processo[]> {
     return this.repositoryService.findAllProcessos();
   }
@@ -59,99 +45,42 @@ export class ScmService implements OnApplicationBootstrap {
   }
 
   async getAllData() {
-    const [
-      processos,
-      fases,
-      tipos,
-      municipios,
-      substancias,
-      processoMunicipios,
-      processoSubstancias,
-    ] = await Promise.all([
-      this.getProcessos(),
-      this.getFases(),
-      this.getTipos(),
-      this.getMunicipios(),
-      this.getSubstancias(),
-      this.getProcessoMunicipios(),
-      this.getProcessoSubstancias(),
-    ]);
-
-    return {
-      processos,
-      fases,
-      tipos,
-      municipios,
-      substancias,
-      processoMunicipios,
-      processoSubstancias,
-    };
+    const [processos, fases, tipos, municipios, substancias, processoMunicipios, processoSubstancias] =
+      await Promise.all([
+        this.getProcessos(), this.getFases(), this.getTipos(),
+        this.getMunicipios(), this.getSubstancias(),
+        this.getProcessoMunicipios(), this.getProcessoSubstancias(),
+      ]);
+    return { processos, fases, tipos, municipios, substancias, processoMunicipios, processoSubstancias };
   }
 
-  // Analytics methods (using database queries)
   async getProcessosByFase(): Promise<{ [fase: string]: number }> {
     const result = await this.repositoryService.getProcessosByFase();
-    const faseCount: { [fase: string]: number } = {};
-    
-    result.forEach(item => {
-      faseCount[item.fase] = item.count;
-    });
-    
-    return faseCount;
+    return Object.fromEntries(result.map((r) => [r.fase, r.count]));
   }
 
   async getProcessosByTipo(): Promise<{ [tipo: string]: number }> {
     const result = await this.repositoryService.getProcessosByTipo();
-    const tipoCount: { [tipo: string]: number } = {};
-    
-    result.forEach(item => {
-      tipoCount[item.tipo] = item.count;
-    });
-    
-    return tipoCount;
+    return Object.fromEntries(result.map((r) => [r.tipo, r.count]));
   }
 
   async getProcessosByMunicipio(): Promise<{ [municipio: string]: number }> {
     const result = await this.repositoryService.getProcessosByMunicipio();
-    const municipioCount: { [municipio: string]: number } = {};
-    
-    result.forEach(item => {
-      municipioCount[item.municipio] = item.count;
-    });
-    
-    return municipioCount;
+    return Object.fromEntries(result.map((r) => [r.municipio, r.count]));
   }
 
   async getProcessosBySubstancia(): Promise<{ [substancia: string]: number }> {
     const result = await this.repositoryService.getProcessosBySubstancia();
-    const substanciaCount: { [substancia: string]: number } = {};
-    
-    result.forEach(item => {
-      substanciaCount[item.substancia] = item.count;
-    });
-    
-    return substanciaCount;
+    return Object.fromEntries(result.map((r) => [r.substancia, r.count]));
   }
 
   async getProcessosByUF(): Promise<{ [uf: string]: number }> {
     const result = await this.repositoryService.getProcessosByUF();
-    const ufCount: { [uf: string]: number } = {};
-    
-    result.forEach(item => {
-      ufCount[item.uf] = item.count;
-    });
-    
-    return ufCount;
-  }
-
-  // Manual update methods
-  async triggerManualUpdate(): Promise<void> {
-    return this.schedulerService.triggerManualUpdate();
+    return Object.fromEntries(result.map((r) => [r.uf, r.count]));
   }
 
   async getDataSummary() {
     const counts = await this.repositoryService.getDataCounts();
-
     return {
       lastUpdate: new Date().toISOString(),
       counts,
@@ -163,7 +92,6 @@ export class ScmService implements OnApplicationBootstrap {
     };
   }
 
-  // Search/filter methods
   async findProcessosByFilters(filters: {
     processo?: string;
     municipio?: number;
@@ -177,5 +105,11 @@ export class ScmService implements OnApplicationBootstrap {
 
   async getDataCounts() {
     return this.repositoryService.getDataCounts();
+  }
+
+  async triggerManualUpdate(): Promise<void> {
+    this.logger.warn(
+      'Manual update triggered via API. Data ingestion is now managed by Airflow — trigger the scm_ingest DAG instead.',
+    );
   }
 }

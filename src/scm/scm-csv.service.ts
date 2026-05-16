@@ -1,11 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ScmRepositoryService } from './scm-repository.service';
 import axios from 'axios';
-import { createWriteStream, createReadStream } from 'fs';
+import { createWriteStream, createReadStream, existsSync } from 'fs';
 import { pipeline } from 'stream/promises';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import AdmZip = require('adm-zip');
+import * as unzipper from 'unzipper';
 import * as readline from 'readline';
 import * as https from 'https';
 import {
@@ -43,8 +43,6 @@ export class ScmCsvService {
       const extractedDir = path.join(this.dataDirectory, 'extracted', 'microdados-scm');
       const processoFile = path.join(extractedDir, 'Processo.txt');
 
-      // Check if the main file exists
-      const existsSync = require('fs').existsSync as (path: string) => boolean;
       if (!existsSync(processoFile)) {
         return false;
       }
@@ -140,20 +138,14 @@ export class ScmCsvService {
   }
 
   private async extractZipFile(zipPath: string): Promise<void> {
-    try {
-      const zip = new AdmZip(zipPath);
-      const outputPath = path.join(this.dataDirectory, 'extracted');
+    const outputPath = path.join(this.dataDirectory, 'extracted');
+    await fs.mkdir(outputPath, { recursive: true });
 
-      await fs.mkdir(outputPath, { recursive: true });
+    await createReadStream(zipPath)
+      .pipe(unzipper.Extract({ path: outputPath }))
+      .promise();
 
-      // Extract all files from the zip
-      zip.extractAllTo(outputPath, true);
-
-      this.logger.log(`Extracted zip file to ${outputPath}`);
-    } catch (error) {
-      this.logger.error('Failed to extract zip file:', error);
-      throw error;
-    }
+    this.logger.log(`Extracted zip file to ${outputPath}`);
   }
 
   async parseProcessoFile(): Promise<ProcessoEntity[]> {
@@ -249,22 +241,13 @@ export class ScmCsvService {
   }
 
   private getFilePath(fileName: string): string {
-    // Try multiple possible locations for the file
-    const staticPath = path.join(process.cwd(), 'static', 'SCM', fileName);
-    const extractedPath = path.join(this.dataDirectory, 'extracted', fileName);
-    const extractedSubPath = path.join(this.dataDirectory, 'extracted', 'microdados-scm', fileName);
-    const dataPath = path.join(this.dataDirectory, fileName);
-
-    // Return the first one that exists (prioritize extracted/downloaded data)
-    const existsSync = require('fs').existsSync as (path: string) => boolean;
-    for (const filePath of [extractedSubPath, extractedPath, dataPath, staticPath]) {
-      if (existsSync(filePath)) {
-        return filePath;
-      }
-    }
-
-    // Fallback to static path
-    return staticPath;
+    const candidates = [
+      path.join(this.dataDirectory, 'extracted', 'microdados-scm', fileName),
+      path.join(this.dataDirectory, 'extracted', fileName),
+      path.join(this.dataDirectory, fileName),
+      path.join(process.cwd(), 'static', 'SCM', fileName),
+    ];
+    return candidates.find(existsSync) ?? candidates[3];
   }
 
   private parseProcessoLine(line: string): ProcessoEntity | null {

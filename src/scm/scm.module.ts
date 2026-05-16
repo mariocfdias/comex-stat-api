@@ -2,8 +2,6 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScmController } from './scm.controller';
 import { ScmService } from './scm.service';
-import { ScmCsvService } from './scm-csv.service';
-import { ScmSchedulerService } from './scm-scheduler.service';
 import { ScmRepositoryService } from './scm-repository.service';
 import {
   Processo,
@@ -28,7 +26,7 @@ import {
     ]),
   ],
   controllers: [ScmController],
-  providers: [ScmService, ScmCsvService, ScmSchedulerService, ScmRepositoryService],
-  exports: [ScmService, ScmCsvService, ScmSchedulerService, ScmRepositoryService],
+  providers: [ScmService, ScmRepositoryService],
+  exports: [ScmService, ScmRepositoryService],
 })
 export class ScmModule {}
