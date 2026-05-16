@@ -1,4 +1,6 @@
-import { Controller, Get, Query, ValidationPipe } from '@nestjs/common';
+import { Controller, Delete, Get, Inject, Logger, Query, ValidationPipe } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import type { Cache } from 'cache-manager';
 import {
   ApiExtraModels,
   ApiOkResponse,
@@ -13,9 +15,15 @@ import {
   NationalComparisonDto,
   NationalComparisonResponseDto,
   NationalComparisonQueryDto,
+  StateRankingItemDto,
+  StateRankingSectorDto,
+  StateRankingPartnerDto,
+  StateRankingProductDto,
+  StatesRankingResponseDto,
   PartnerCountriesQueryDto,
   PartnerCountriesResponseDto,
   PartnerCountryDto,
+  PeriodDto,
   SummaryPeriod,
   SummaryQueryDto,
   SummaryResponseDto,
@@ -49,10 +57,20 @@ import { ComexstatService } from './comexstat.service';
   DashboardDataDto,
   NationalComparisonResponseDto,
   NationalComparisonDto,
+  StatesRankingResponseDto,
+  StateRankingItemDto,
+  StateRankingSectorDto,
+  StateRankingPartnerDto,
+  StateRankingProductDto,
 )
 @Controller('comexstat')
 export class ComexstatController {
-  constructor(private readonly comexstatService: ComexstatService) {}
+  private readonly logger = new Logger(ComexstatController.name);
+
+  constructor(
+    private readonly comexstatService: ComexstatService,
+    @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
+  ) {}
 
   @Get('summary')
   @ApiOperation({ summary: 'Recupera dados do Quadro Resumo.' })
@@ -64,9 +82,19 @@ export class ComexstatController {
     @Query(new ValidationPipe({ transform: true, whitelist: true }))
     query: SummaryQueryDto,
   ): Promise<SummaryResponseDto> {
+    // Build customPeriod from periodFrom and periodTo if provided
+    let customPeriod: PeriodDto | undefined;
+
+    if (query.periodFrom && query.periodTo) {
+      customPeriod = {
+        from: query.periodFrom,
+        to: query.periodTo,
+      };
+    }
+
     const data = await this.comexstatService.getSummaryData(
       query.period ?? SummaryPeriod.YEAR_TO_DATE,
-      query.customPeriod,
+      customPeriod,
     );
 
     return { success: true, data };
@@ -123,10 +151,20 @@ export class ComexstatController {
     @Query(new ValidationPipe({ transform: true, whitelist: true }))
     query: PartnerCountriesQueryDto,
   ): Promise<PartnerCountriesResponseDto> {
+    // Build customPeriod from periodFrom and periodTo if provided
+    let customPeriod: PeriodDto | undefined;
+
+    if (query.periodFrom && query.periodTo) {
+      customPeriod = {
+        from: query.periodFrom,
+        to: query.periodTo,
+      };
+    }
+
     const data = await this.comexstatService.getPartnerCountries(
       query.flow ?? TradeFlow.CURRENT,
       query.period ?? SummaryPeriod.YEAR_TO_DATE,
-      query.customPeriod,
+      customPeriod,
       query.topN,
     );
 
@@ -143,7 +181,26 @@ export class ComexstatController {
     @Query(new ValidationPipe({ transform: true, whitelist: true }))
     query: TopProductsQueryDto,
   ): Promise<TopProductsResponseDto> {
-    const periodInput = query.year ?? query.period;
+    this.logger.debug(
+      `Recebido - year: ${query.year}, periodFrom: ${query.periodFrom}, periodTo: ${query.periodTo}`,
+    );
+
+    // Build period object from periodFrom and periodTo
+    let periodInput: PeriodDto | number | undefined;
+
+    if (query.periodFrom && query.periodTo) {
+      periodInput = {
+        from: query.periodFrom,
+        to: query.periodTo,
+      };
+      this.logger.debug(`Period construído: ${JSON.stringify(periodInput)}`);
+    } else if (query.year !== undefined) {
+      periodInput = query.year;
+      this.logger.debug(`Usando year: ${periodInput}`);
+    } else {
+      periodInput = undefined;
+      this.logger.debug(`Sem período especificado, usando default`);
+    }
 
     const data = await this.comexstatService.getTopProducts(
       query.flow ?? TradeFlow.EXPORT,
@@ -167,6 +224,24 @@ export class ComexstatController {
     query: NationalComparisonQueryDto,
   ): Promise<NationalComparisonResponseDto> {
     const data = await this.comexstatService.getNationalComparison(query.flow, {
+      from: query.from,
+      to: query.to,
+    });
+
+    return { success: true, data };
+  }
+
+  @Get('national-comparison/states-ranking')
+  @ApiOperation({ summary: 'Recupera ranking de todos os estados ordenado por valor.' })
+  @ApiOkResponse({
+    description: 'Ranking de estados recuperado com sucesso.',
+    type: StatesRankingResponseDto,
+  })
+  async getStatesRanking(
+    @Query(new ValidationPipe({ transform: true, whitelist: true }))
+    query: NationalComparisonQueryDto,
+  ): Promise<StatesRankingResponseDto> {
+    const data = await this.comexstatService.getStatesRanking(query.flow, {
       from: query.from,
       to: query.to,
     });
@@ -218,6 +293,26 @@ export class ComexstatController {
         topImports,
         topPartners,
       },
+    };
+  }
+
+  @Delete('cache')
+  @ApiOperation({ summary: 'Limpa o cache de dados do ComexStat (apenas para debug).' })
+  async clearCache(): Promise<{ success: boolean; message: string }> {
+    // O cache-manager não tem um método reset() global na versão atual
+    // Uma alternativa é reiniciar o servidor ou esperar o TTL expirar
+    // Para debug, você pode deletar chaves específicas se souber os padrões
+    const store = (this.cacheManager as any).store;
+    if (store && typeof store.reset === 'function') {
+      await store.reset();
+      return {
+        success: true,
+        message: 'Cache limpo com sucesso',
+      };
+    }
+    return {
+      success: false,
+      message: 'Método reset não disponível. Reinicie o servidor para limpar o cache.',
     };
   }
 }

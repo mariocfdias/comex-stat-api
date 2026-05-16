@@ -1,16 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsPositive, IsString } from 'class-validator';
+import { IsInt, IsOptional, IsPositive, IsString, IsIn } from 'class-validator';
 
 export class RdeQueryDto {
-  @ApiPropertyOptional({
-    type: String,
-    description: 'Propriedades que serão retornadas',
-  })
-  @IsString()
-  @IsOptional()
-  select?: string;
-
   @ApiPropertyOptional({
     type: Number,
     description:
@@ -32,6 +24,28 @@ export class RdeQueryDto {
   @IsPositive()
   @IsOptional()
   top = 100;
+
+  @ApiPropertyOptional({
+    type: String,
+    enum: ['asc', 'desc'],
+    description: 'Direção da ordenação para o campo Ano',
+    default: 'desc',
+  })
+  @IsString()
+  @IsIn(['asc', 'desc'])
+  @IsOptional()
+  orderAno?: 'asc' | 'desc';
+
+  @ApiPropertyOptional({
+    type: String,
+    enum: ['asc', 'desc'],
+    description: 'Direção da ordenação para o campo Mes',
+    default: 'desc',
+  })
+  @IsString()
+  @IsIn(['asc', 'desc'])
+  @IsOptional()
+  orderMes?: 'asc' | 'desc';
 }
 
 export class TodosRegistrosDto {
