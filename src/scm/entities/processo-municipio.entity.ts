@@ -1,8 +1,10 @@
-import { Entity, PrimaryColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, PrimaryColumn, ManyToOne, JoinColumn, Index } from 'typeorm';
 import { Processo } from './processo.entity';
 import { Municipio } from './municipio.entity';
 
 @Entity('processo_municipio')
+@Index(['IDMunicipio'])
+@Index(['DSProcesso'])
 export class ProcessoMunicipio {
   @PrimaryColumn({ type: 'varchar', length: 50 })
   DSProcesso: string;

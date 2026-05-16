@@ -1,11 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ScmRepositoryService } from './scm-repository.service';
 import axios from 'axios';
-import { createWriteStream, createReadStream } from 'fs';
+import { createWriteStream, createReadStream, existsSync } from 'fs';
 import { pipeline } from 'stream/promises';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import AdmZip = require('adm-zip');
+import * as unzipper from 'unzipper';
 import * as readline from 'readline';
 import * as https from 'https';
 import {
@@ -43,8 +43,6 @@ export class ScmCsvService {
       const extractedDir = path.join(this.dataDirectory, 'extracted', 'microdados-scm');
       const processoFile = path.join(extractedDir, 'Processo.txt');
 
-      // Check if the main file exists
-      const existsSync = require('fs').existsSync as (path: string) => boolean;
       if (!existsSync(processoFile)) {
         return false;
       }
@@ -78,56 +76,76 @@ export class ScmCsvService {
 
     this.logger.log('Starting download of SCM data...');
 
-    try {
-      const zipPath = path.join(this.dataDirectory, 'microdados-scm.zip');
+    const zipPath = path.join(this.dataDirectory, 'microdados-scm.zip');
+    const maxRetries = 3;
+    let lastError: Error | null = null;
 
-      // Create HTTPS agent that accepts self-signed certificates
-      // This is necessary because the ANM server certificate has validation issues
-      const httpsAgent = new https.Agent({
-        rejectUnauthorized: false,
-      });
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        this.logger.log(`Download attempt ${attempt}/${maxRetries}...`);
 
-      // Download zip file
-      this.logger.log('Downloading zip file from ANM...');
-      const response = await axios({
-        method: 'GET',
-        url: this.downloadUrl,
-        responseType: 'stream',
-        timeout: 300000, // 5 minutes timeout
-        httpsAgent,
-      });
+        // Create HTTPS agent with better configuration
+        const httpsAgent = new https.Agent({
+          rejectUnauthorized: false,
+          keepAlive: true,
+          keepAliveMsecs: 60000,
+          timeout: 120000, // 2 minutes for connection
+        });
 
-      // Save to file
-      const writer = createWriteStream(zipPath);
-      await pipeline(response.data, writer);
+        // Download zip file with separate timeouts
+        this.logger.log('Downloading zip file from ANM...');
+        const response = await axios({
+          method: 'GET',
+          url: this.downloadUrl,
+          responseType: 'stream',
+          timeout: 600000, // 10 minutes total timeout
+          httpsAgent,
+          // Add headers to appear more like a browser
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/zip, */*',
+            'Accept-Encoding': 'gzip, deflate, br',
+          },
+          maxRedirects: 5,
+        });
 
-      this.logger.log('Download completed, extracting files...');
+        // Save to file
+        const writer = createWriteStream(zipPath);
+        await pipeline(response.data, writer);
 
-      // Extract zip file
-      await this.extractZipFile(zipPath);
+        this.logger.log('Download completed, extracting files...');
 
-      this.logger.log('Data extraction completed successfully');
-    } catch (error) {
-      this.logger.error('Failed to download and extract data:', error);
-      throw error;
+        // Extract zip file
+        await this.extractZipFile(zipPath);
+
+        this.logger.log('Data extraction completed successfully');
+        return; // Success, exit the retry loop
+      } catch (error) {
+        lastError = error as Error;
+        this.logger.error(`Attempt ${attempt} failed:`, error.message);
+
+        if (attempt < maxRetries) {
+          const waitTime = Math.min(1000 * Math.pow(2, attempt - 1), 30000); // Exponential backoff, max 30s
+          this.logger.log(`Retrying in ${waitTime / 1000} seconds...`);
+          await new Promise((resolve) => setTimeout(resolve, waitTime));
+        }
+      }
     }
+
+    // If we get here, all retries failed
+    this.logger.error('All download attempts failed');
+    throw lastError || new Error('Download failed after all retries');
   }
 
   private async extractZipFile(zipPath: string): Promise<void> {
-    try {
-      const zip = new AdmZip(zipPath);
-      const outputPath = path.join(this.dataDirectory, 'extracted');
+    const outputPath = path.join(this.dataDirectory, 'extracted');
+    await fs.mkdir(outputPath, { recursive: true });
 
-      await fs.mkdir(outputPath, { recursive: true });
+    await createReadStream(zipPath)
+      .pipe(unzipper.Extract({ path: outputPath }))
+      .promise();
 
-      // Extract all files from the zip
-      zip.extractAllTo(outputPath, true);
-
-      this.logger.log(`Extracted zip file to ${outputPath}`);
-    } catch (error) {
-      this.logger.error('Failed to extract zip file:', error);
-      throw error;
-    }
+    this.logger.log(`Extracted zip file to ${outputPath}`);
   }
 
   async parseProcessoFile(): Promise<ProcessoEntity[]> {
@@ -223,22 +241,13 @@ export class ScmCsvService {
   }
 
   private getFilePath(fileName: string): string {
-    // Try multiple possible locations for the file
-    const staticPath = path.join(process.cwd(), 'static', 'SCM', fileName);
-    const extractedPath = path.join(this.dataDirectory, 'extracted', fileName);
-    const extractedSubPath = path.join(this.dataDirectory, 'extracted', 'microdados-scm', fileName);
-    const dataPath = path.join(this.dataDirectory, fileName);
-
-    // Return the first one that exists (prioritize extracted/downloaded data)
-    const existsSync = require('fs').existsSync as (path: string) => boolean;
-    for (const filePath of [extractedSubPath, extractedPath, dataPath, staticPath]) {
-      if (existsSync(filePath)) {
-        return filePath;
-      }
-    }
-
-    // Fallback to static path
-    return staticPath;
+    const candidates = [
+      path.join(this.dataDirectory, 'extracted', 'microdados-scm', fileName),
+      path.join(this.dataDirectory, 'extracted', fileName),
+      path.join(this.dataDirectory, fileName),
+      path.join(process.cwd(), 'static', 'SCM', fileName),
+    ];
+    return candidates.find(existsSync) ?? candidates[3];
   }
 
   private parseProcessoLine(line: string): ProcessoEntity | null {

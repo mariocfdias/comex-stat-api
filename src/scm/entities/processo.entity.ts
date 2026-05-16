@@ -1,10 +1,12 @@
-import { Entity, PrimaryColumn, Column, ManyToOne, OneToMany, JoinColumn } from 'typeorm';
+import { Entity, PrimaryColumn, Column, ManyToOne, OneToMany, JoinColumn, Index } from 'typeorm';
 import { FaseProcesso } from './fase-processo.entity';
 import { TipoRequerimento } from './tipo-requerimento.entity';
 import { ProcessoMunicipio } from './processo-municipio.entity';
 import { ProcessoSubstancia } from './processo-substancia.entity';
 
 @Entity('processos')
+@Index(['IDFaseProcesso'])
+@Index(['IDTipoRequerimento'])
 export class Processo {
   @PrimaryColumn({ type: 'varchar', length: 50 })
   DSProcesso: string;

@@ -23,10 +23,14 @@ export class ScmService implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
-    // Load initial data if database is empty
-    // TEMPORARILY DISABLED: uncomment after fixing data download
-    // await this.schedulerService.loadInitialDataIfNeeded();
-    this.logger.log('Skipping initial data load. Use manual trigger to load data.');
+    try {
+      await this.schedulerService.loadInitialDataIfNeeded();
+    } catch (error) {
+      this.logger.error(
+        'Initial SCM data load failed. Endpoints will return empty results until next cron or manual trigger.',
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
   }
 
   // Data retrieval methods (now from database)
