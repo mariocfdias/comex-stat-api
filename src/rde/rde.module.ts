@@ -20,6 +20,12 @@ import { RdeService, RDE_HTTP_CLIENT } from './rde.service';
           httpsAgent: new Agent({
             rejectUnauthorized: process.env.RDE_ALLOW_INSECURE !== 'false',
           }),
+          paramsSerializer: {
+            encode: (value: string) => {
+              // Codifica espaços como %20 para compatibilidade com OData
+              return encodeURIComponent(value).replace(/%2C/g, ',');
+            },
+          },
         }),
     },
     RdeService,

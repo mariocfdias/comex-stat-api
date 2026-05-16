@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { ComexstatController } from './comexstat.controller';
 import { ComexstatService } from './comexstat.service';
 
@@ -19,6 +20,15 @@ describe('ComexstatController', () => {
             getPartnerCountries: jest.fn(),
             getTopProducts: jest.fn(),
             getNationalComparison: jest.fn(),
+            getStatesRanking: jest.fn(),
+          },
+        },
+        {
+          provide: CACHE_MANAGER,
+          useValue: {
+            get: jest.fn(),
+            set: jest.fn(),
+            reset: jest.fn(),
           },
         },
       ],
@@ -54,5 +64,38 @@ describe('ComexstatController', () => {
       to: '2024-02',
     });
     expect(response).toEqual({ success: true, data: summaryHistory });
+  });
+
+  it('should return states ranking with additional information', async () => {
+    const statesRanking = [
+      {
+        rank: 1,
+        state: 'Ceará',
+        value: 500,
+        participation: 50,
+        topSectors: [
+          { code: '01', name: 'Manufatura', value: 300, percentage: 60 },
+        ],
+        topPartners: [
+          { country: 'Estados Unidos', value: 250, percentage: 50 },
+        ],
+        topProducts: [
+          { code: '0101', description: 'Produto A', value: 200, percentage: 40 },
+        ],
+      },
+    ];
+    service.getStatesRanking.mockResolvedValue(statesRanking as any);
+
+    const response = await controller.getStatesRanking({
+      flow: 'export' as any,
+      from: '2024-01',
+      to: '2024-12',
+    });
+
+    expect(service.getStatesRanking).toHaveBeenCalledWith('export', {
+      from: '2024-01',
+      to: '2024-12',
+    });
+    expect(response).toEqual({ success: true, data: statesRanking });
   });
 });

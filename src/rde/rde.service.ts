@@ -39,10 +39,18 @@ export class RdeService {
     return this.getCachedValue(cacheKey, async () => {
       const params = this.buildODataParams(query);
 
+      this.logger.log(
+        `getTodosRegistros - Request params: ${JSON.stringify(params)}`,
+      );
+
       try {
         const response = await this.http.get<
           RdeODataResponse<TodosRegistrosDto>
         >('/TodosRegistros', { params });
+
+        this.logger.log(
+          `getTodosRegistros - Success: ${response.data.value?.length || 0} records`,
+        );
 
         return {
           data: response.data.value || [],
@@ -62,10 +70,18 @@ export class RdeService {
     return this.getCachedValue(cacheKey, async () => {
       const params = this.buildODataParams(query);
 
+      this.logger.log(
+        `getRegistrosIed - Request params: ${JSON.stringify(params)}`,
+      );
+
       try {
         const response = await this.http.get<RdeODataResponse<RegistrosIedDto>>(
           '/RegistrosIED',
           { params },
+        );
+
+        this.logger.log(
+          `getRegistrosIed - Success: ${response.data.value?.length || 0} records`,
         );
 
         return {
@@ -82,12 +98,13 @@ export class RdeService {
     const params: Record<string, string> = {
       $format: 'json',
       $filter: "contains(UfPessoaNacional,'CE')",
-      $orderby: 'Ano desc',
     };
 
-    if (query.select) {
-      params.$select = query.select;
-    }
+    // Orderby composto: Ano e Mes
+    const orderAno = query.orderAno || 'desc';
+    const orderMes = query.orderMes || 'desc';
+    const orderbyParts = [`Ano ${orderAno}`, `Mes ${orderMes}`];
+    params.$orderby = orderbyParts.join(',');
 
     if (query.skip !== undefined) {
       params.$skip = query.skip.toString();
@@ -150,11 +167,24 @@ export class RdeService {
   }
 
   private handleApiError(error: unknown, method: string): never {
-    this.logger.error(
-      `RDE API request failed in ${method}`,
-      error instanceof Error ? error.stack : undefined,
-      method,
-    );
+    if (error instanceof AxiosError) {
+      this.logger.error(
+        `RDE API request failed in ${method}`,
+        {
+          url: error.config?.url,
+          params: error.config?.params,
+          status: error.response?.status,
+          data: error.response?.data,
+        },
+        method,
+      );
+    } else {
+      this.logger.error(
+        `RDE API request failed in ${method}`,
+        error instanceof Error ? error.stack : undefined,
+        method,
+      );
+    }
 
     if (error instanceof ServiceUnavailableException) {
       throw error;

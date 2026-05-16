@@ -1,6 +1,10 @@
 import {
   AggregationLevel,
   NationalComparisonDto,
+  StateRankingItemDto,
+  StateRankingSectorDto,
+  StateRankingPartnerDto,
+  StateRankingProductDto,
   PeriodDto,
   PartnerCountryDto,
   ProductDto,
@@ -11,6 +15,10 @@ import {
   TimeSeriesSeries,
   TradeFlow,
 } from './dto/comexstat.dto';
+import {
+  Period,
+  PeriodStrategyFactory,
+} from './strategies/period.strategy';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import {
   BadRequestException,
@@ -24,11 +32,6 @@ import {
 import { AxiosError } from 'axios';
 import type { AxiosInstance } from 'axios';
 import type { Cache } from 'cache-manager';
-
-interface Period {
-  from: string;
-  to: string;
-}
 
 interface Filter {
   filter: string;
@@ -70,56 +73,56 @@ export class ComexstatService {
     periodType: SummaryPeriod,
     customPeriod?: PeriodDto,
   ): Promise<SummaryDataDto> {
+    const { currentYear, currentMonth, previousMonth, previousMonthYear } =
+      this.getCurrentDateInfo();
+
+    let period: Period;
+    let periodLabel: string;
+
+    switch (periodType) {
+      case SummaryPeriod.CURRENT_MONTH:
+        period = {
+          from: this.formatPeriod(previousMonthYear, previousMonth),
+          to: this.formatPeriod(previousMonthYear, previousMonth),
+        };
+        periodLabel = `${this.formatMonthAbbreviation(previousMonth)}/${previousMonthYear}`;
+        break;
+
+      case SummaryPeriod.YEAR_TO_DATE:
+        period = {
+          from: this.formatPeriod(currentYear, 1),
+          to: this.formatPeriod(currentYear, currentMonth),
+        };
+        periodLabel = `Jan-${this.formatMonthAbbreviation(currentMonth)}/${currentYear}`;
+        break;
+
+      case SummaryPeriod.LAST_YEAR:
+        period = {
+          from: this.formatPeriod(currentYear - 1, 1),
+          to: this.formatPeriod(currentYear - 1, 12),
+        };
+        periodLabel = `${currentYear - 1}`;
+        break;
+
+      case SummaryPeriod.CUSTOM:
+        if (!customPeriod) {
+          throw new BadRequestException(
+            'Custom period is required when period type is custom.',
+          );
+        }
+        period = customPeriod;
+        periodLabel = `${customPeriod.from} - ${customPeriod.to}`;
+        break;
+
+      default:
+        throw new BadRequestException('Unsupported period type.');
+    }
+
     const cacheKey = this.buildCacheKey('summary', {
-      periodType,
-      customPeriod,
+      period,
     });
 
     return this.getCachedValue(cacheKey, async () => {
-      const { currentYear, currentMonth, previousMonth, previousMonthYear } =
-        this.getCurrentDateInfo();
-
-      let period: Period;
-      let periodLabel: string;
-
-      switch (periodType) {
-        case SummaryPeriod.CURRENT_MONTH:
-          period = {
-            from: this.formatPeriod(previousMonthYear, previousMonth),
-            to: this.formatPeriod(previousMonthYear, previousMonth),
-          };
-          periodLabel = `${this.formatMonthAbbreviation(previousMonth)}/${previousMonthYear}`;
-          break;
-
-        case SummaryPeriod.YEAR_TO_DATE:
-          period = {
-            from: this.formatPeriod(currentYear, 1),
-            to: this.formatPeriod(currentYear, currentMonth),
-          };
-          periodLabel = `Jan-${this.formatMonthAbbreviation(currentMonth)}/${currentYear}`;
-          break;
-
-        case SummaryPeriod.LAST_YEAR:
-          period = {
-            from: this.formatPeriod(currentYear - 1, 1),
-            to: this.formatPeriod(currentYear - 1, 12),
-          };
-          periodLabel = `${currentYear - 1}`;
-          break;
-
-        case SummaryPeriod.CUSTOM:
-          if (!customPeriod) {
-            throw new BadRequestException(
-              'Custom period is required when period type is custom.',
-            );
-          }
-          period = customPeriod;
-          periodLabel = `${customPeriod.from} - ${customPeriod.to}`;
-          break;
-
-        default:
-          throw new BadRequestException('Unsupported period type.');
-      }
 
       const [exportResponse, importResponse] = await Promise.all([
         this.queryGeneral({
@@ -267,17 +270,18 @@ export class ComexstatService {
     endYear?: number,
     includeSectors = false,
   ): Promise<TimeSeriesDataDto[]> {
+    const { currentYear } = this.getCurrentDateInfo();
+    const effectiveEndYear = endYear ?? currentYear;
+
     const cacheKey = this.buildCacheKey('timeseries', {
       periodicity,
       series,
       startYear,
-      endYear,
+      endYear: effectiveEndYear,
       includeSectors,
     });
 
     return this.getCachedValue(cacheKey, async () => {
-      const { currentYear } = this.getCurrentDateInfo();
-      const effectiveEndYear = endYear ?? currentYear;
 
       const period: Period = {
         from: this.formatPeriod(startYear, 1),
@@ -408,43 +412,49 @@ export class ComexstatService {
     customPeriod?: PeriodDto,
     topN = 10,
   ): Promise<PartnerCountryDto[]> {
+    const { currentYear, currentMonth, previousMonth, previousMonthYear } =
+      this.getCurrentDateInfo();
+
+    let period: Period;
+
+    switch (periodType) {
+      case SummaryPeriod.CURRENT_MONTH:
+        period = {
+          from: this.formatPeriod(previousMonthYear, previousMonth),
+          to: this.formatPeriod(previousMonthYear, previousMonth),
+        };
+        break;
+      case SummaryPeriod.YEAR_TO_DATE:
+        period = {
+          from: this.formatPeriod(currentYear, 1),
+          to: this.formatPeriod(currentYear, currentMonth),
+        };
+        break;
+      case SummaryPeriod.LAST_YEAR:
+        period = {
+          from: this.formatPeriod(currentYear - 1, 1),
+          to: this.formatPeriod(currentYear - 1, 12),
+        };
+        break;
+      case SummaryPeriod.CUSTOM:
+        if (!customPeriod) {
+          throw new BadRequestException(
+            'Custom period is required when period type is custom.',
+          );
+        }
+        period = customPeriod;
+        break;
+      default:
+        throw new BadRequestException('Unsupported period type.');
+    }
+
     const cacheKey = this.buildCacheKey('partners', {
       flow,
-      periodType,
-      customPeriod,
+      period,
       topN,
     });
 
     return this.getCachedValue(cacheKey, async () => {
-      const { currentYear, currentMonth, previousMonth, previousMonthYear } =
-        this.getCurrentDateInfo();
-
-      let period: Period;
-
-      switch (periodType) {
-        case SummaryPeriod.CURRENT_MONTH:
-          period = {
-            from: this.formatPeriod(previousMonthYear, previousMonth),
-            to: this.formatPeriod(previousMonthYear, previousMonth),
-          };
-          break;
-        case SummaryPeriod.YEAR_TO_DATE:
-          period = {
-            from: this.formatPeriod(currentYear, 1),
-            to: this.formatPeriod(currentYear, currentMonth),
-          };
-          break;
-        case SummaryPeriod.CUSTOM:
-          if (!customPeriod) {
-            throw new BadRequestException(
-              'Custom period is required when period type is custom.',
-            );
-          }
-          period = customPeriod;
-          break;
-        default:
-          throw new BadRequestException('Unsupported period type.');
-      }
 
       const requests: Array<{
         kind: TradeFlow.EXPORT | TradeFlow.IMPORT;
@@ -556,31 +566,30 @@ export class ComexstatService {
     aggregation: AggregationLevel,
     topN = 20,
   ): Promise<ProductDto[]> {
+    this.logger.debug(
+      `getTopProducts chamado com period: ${JSON.stringify(period)}, periodicity: ${periodicity}`,
+    );
+
+    // Use Strategy pattern to handle period resolution
+    const strategy = PeriodStrategyFactory.create(periodicity);
+    const { currentYear, currentMonth } = this.getCurrentDateInfo();
+
+    const queryPeriod = strategy.resolvePeriod(period, currentYear, currentMonth);
+    const monthDetail = strategy.useMonthDetail();
+
+    this.logger.debug(
+      `Strategy ${periodicity}: queryPeriod=${JSON.stringify(queryPeriod)}, monthDetail=${monthDetail}`,
+    );
+
     const cacheKey = this.buildCacheKey('products', {
       flow,
       periodicity,
-      period:
-        typeof period === 'number' || period === undefined
-          ? period
-          : { ...period },
+      period: queryPeriod,
       aggregation,
       topN,
     });
 
     return this.getCachedValue(cacheKey, async () => {
-      const periodOrYear = period ?? this.getCurrentDateInfo().currentYear - 1;
-      let queryPeriod: Period;
-
-      if (typeof periodOrYear === 'number') {
-        queryPeriod = {
-          from: this.formatPeriod(periodOrYear, 1),
-          to: this.formatPeriod(periodOrYear, 12),
-        };
-      } else {
-        queryPeriod = periodOrYear;
-      }
-
-      const monthDetail = periodicity === TimeSeriesPeriodicity.MONTHLY;
 
       const response = await this.queryGeneral({
         flow,
@@ -685,6 +694,186 @@ export class ComexstatService {
     });
   }
 
+  async getStatesRanking(
+    flow: TradeFlow.EXPORT | TradeFlow.IMPORT,
+    period: PeriodDto,
+  ): Promise<StateRankingItemDto[]> {
+    const cacheKey = this.buildCacheKey('states-ranking', { flow, period });
+
+    return this.getCachedValue(cacheKey, async () => {
+      const [
+        nationalResponse,
+        statesResponse,
+        sectorsResponse,
+        partnersResponse,
+        productsResponse,
+      ] = await Promise.all([
+        this.queryGeneral({
+          flow,
+          monthDetail: false,
+          period,
+          metrics: ['metricFOB'],
+        }),
+        this.queryGeneral({
+          flow,
+          monthDetail: false,
+          period,
+          details: ['state'],
+          metrics: ['metricFOB'],
+        }),
+        this.queryGeneral({
+          flow,
+          monthDetail: false,
+          period,
+          details: ['state', 'ISICSection'],
+          metrics: ['metricFOB'],
+        }),
+        this.queryGeneral({
+          flow,
+          monthDetail: false,
+          period,
+          details: ['state', 'country'],
+          metrics: ['metricFOB'],
+        }),
+        this.queryGeneral({
+          flow,
+          monthDetail: false,
+          period,
+          details: ['state', 'heading'],
+          metrics: ['metricFOB'],
+        }),
+      ]);
+
+      const nationalTotal = Number(
+        nationalResponse.data.list[0]?.metricFOB ?? 0,
+      );
+
+      // Aggregate sectors by state
+      const sectorsByState = new Map<
+        string,
+        Array<{ code: string; name: string; value: number }>
+      >();
+      sectorsResponse.data.list.forEach((item) => {
+        const stateName = item.state ?? item.stateName ?? '';
+        const sectorCode = String(item.coIsicSection ?? item.ISICSectionCode ?? '');
+        const sectorName = item.ISICSection ?? '';
+        const value = this.toMillions(item.metricFOB ?? 0);
+
+        if (!stateName || !sectorName) return;
+
+        if (!sectorsByState.has(stateName)) {
+          sectorsByState.set(stateName, []);
+        }
+
+        sectorsByState.get(stateName)!.push({
+          code: sectorCode,
+          name: sectorName,
+          value,
+        });
+      });
+
+      // Aggregate partners by state
+      const partnersByState = new Map<
+        string,
+        Array<{ country: string; value: number }>
+      >();
+      partnersResponse.data.list.forEach((item) => {
+        const stateName = item.state ?? item.stateName ?? '';
+        const country = item.country ?? item.countryName ?? '';
+        const value = this.toMillions(item.metricFOB ?? 0);
+
+        if (!stateName || !country) return;
+
+        if (!partnersByState.has(stateName)) {
+          partnersByState.set(stateName, []);
+        }
+
+        partnersByState.get(stateName)!.push({ country, value });
+      });
+
+      // Aggregate products by state
+      const productsByState = new Map<
+        string,
+        Array<{ code: string; description: string; value: number }>
+      >();
+      productsResponse.data.list.forEach((item) => {
+        const stateName = item.state ?? item.stateName ?? '';
+        const code = String(item.headingCode ?? '');
+        const description = item.heading ?? '';
+        const value = this.toMillions(item.metricFOB ?? 0);
+
+        if (!stateName || !code || !description) return;
+
+        if (!productsByState.has(stateName)) {
+          productsByState.set(stateName, []);
+        }
+
+        productsByState.get(stateName)!.push({ code, description, value });
+      });
+
+      // Build ranking with aggregated data
+      return statesResponse.data.list
+        .map((item) => ({
+          state: item.state ?? item.stateName ?? '',
+          value: this.toMillions(item.metricFOB ?? 0),
+          rawValue: Number(item.metricFOB ?? 0),
+        }))
+        .sort((a, b) => b.rawValue - a.rawValue)
+        .map((item, index) => {
+          const participation =
+            nationalTotal > 0 ? (item.rawValue / nationalTotal) * 100 : 0;
+
+          // Get top 5 sectors for this state
+          const sectors = sectorsByState.get(item.state) ?? [];
+          const sectorTotal = sectors.reduce((sum, s) => sum + s.value, 0);
+          const topSectors: StateRankingSectorDto[] = sectors
+            .sort((a, b) => b.value - a.value)
+            .slice(0, 5)
+            .map((s) => ({
+              code: s.code,
+              name: s.name,
+              value: s.value,
+              percentage: sectorTotal > 0 ? (s.value / sectorTotal) * 100 : 0,
+            }));
+
+          // Get top 5 partners for this state
+          const partners = partnersByState.get(item.state) ?? [];
+          const partnerTotal = partners.reduce((sum, p) => sum + p.value, 0);
+          const topPartners: StateRankingPartnerDto[] = partners
+            .sort((a, b) => b.value - a.value)
+            .slice(0, 5)
+            .map((p) => ({
+              country: p.country,
+              value: p.value,
+              percentage: partnerTotal > 0 ? (p.value / partnerTotal) * 100 : 0,
+            }));
+
+          // Get top 5 products for this state
+          const products = productsByState.get(item.state) ?? [];
+          const productTotal = products.reduce((sum, p) => sum + p.value, 0);
+          const topProducts: StateRankingProductDto[] = products
+            .sort((a, b) => b.value - a.value)
+            .slice(0, 5)
+            .map((p) => ({
+              code: p.code,
+              description: p.description,
+              value: p.value,
+              percentage: productTotal > 0 ? (p.value / productTotal) * 100 : 0,
+            }));
+
+          return {
+            rank: index + 1,
+            state: item.state,
+            value: item.value,
+            participation,
+            topSectors,
+            topPartners,
+            topProducts,
+          };
+        });
+    });
+  }
+
   private parseMonth(value: string): { year: number; month: number } {
     const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(value);
 
@@ -770,17 +959,37 @@ export class ComexstatService {
     resolver: () => Promise<T>,
   ): Promise<T> {
     if (!this.cache) {
+      this.logger.debug('Cache não configurado, executando resolver');
       return resolver();
     }
 
     const cached = await this.cache.get<T>(key);
     if (cached !== undefined) {
+      this.logger.log(`[CACHE HIT] ${this.formatCacheKeyForLog(key)}`);
       return cached;
     }
 
+    this.logger.log(`[CACHE MISS] ${this.formatCacheKeyForLog(key)}`);
     const value = await resolver();
     await this.cache.set(key, value, this.cacheTtlSeconds);
+    this.logger.debug(`[CACHE SET] ${this.formatCacheKeyForLog(key)}`);
     return value;
+  }
+
+  private formatCacheKeyForLog(key: string): string {
+    // Extract the endpoint and parameters from the cache key
+    // Format: comexstat:{endpoint}:{json}
+    const parts = key.split(':');
+    if (parts.length >= 3) {
+      const endpoint = parts[1];
+      try {
+        const params = JSON.parse(parts.slice(2).join(':'));
+        return `${endpoint} - ${JSON.stringify(params)}`;
+      } catch {
+        return key.length > 100 ? key.substring(0, 100) + '...' : key;
+      }
+    }
+    return key.length > 100 ? key.substring(0, 100) + '...' : key;
   }
 
   private formatPeriod(year: number, month?: number): string {

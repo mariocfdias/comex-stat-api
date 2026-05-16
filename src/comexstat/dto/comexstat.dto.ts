@@ -79,13 +79,22 @@ export class SummaryQueryDto {
   period: SummaryPeriod = SummaryPeriod.YEAR_TO_DATE;
 
   @ApiPropertyOptional({
-    type: PeriodDto,
-    description: 'Intervalo personalizado usado quando o período é `custom`.',
+    type: String,
+    description: 'Data inicial do período customizado no formato YYYY-MM (ex: 2010-02). Use com periodTo quando period=custom.',
+    example: '2010-02',
   })
-  @ValidateNested()
-  @Type(() => PeriodDto)
+  @IsString()
   @IsOptional()
-  customPeriod?: PeriodDto;
+  periodFrom?: string;
+
+  @ApiPropertyOptional({
+    type: String,
+    description: 'Data final do período customizado no formato YYYY-MM (ex: 2010-08). Use com periodFrom quando period=custom.',
+    example: '2010-08',
+  })
+  @IsString()
+  @IsOptional()
+  periodTo?: string;
 }
 
 export class SummaryHistoryQueryDto {
@@ -166,13 +175,22 @@ export class PartnerCountriesQueryDto {
   period: SummaryPeriod = SummaryPeriod.YEAR_TO_DATE;
 
   @ApiPropertyOptional({
-    type: PeriodDto,
-    description: 'Intervalo personalizado usado quando o período é `custom`.',
+    type: String,
+    description: 'Data inicial do período customizado no formato YYYY-MM (ex: 2010-02). Use com periodTo quando period=custom.',
+    example: '2010-02',
   })
-  @ValidateNested()
-  @Type(() => PeriodDto)
+  @IsString()
   @IsOptional()
-  customPeriod?: PeriodDto;
+  periodFrom?: string;
+
+  @ApiPropertyOptional({
+    type: String,
+    description: 'Data final do período customizado no formato YYYY-MM (ex: 2010-08). Use com periodFrom quando period=custom.',
+    example: '2010-08',
+  })
+  @IsString()
+  @IsOptional()
+  periodTo?: string;
 
   @ApiPropertyOptional({
     type: Number,
@@ -216,14 +234,22 @@ export class TopProductsQueryDto {
   year?: number;
 
   @ApiPropertyOptional({
-    type: PeriodDto,
-    description:
-      'Período personalizado específico para consulta (intervalo YYYY-MM).',
+    type: String,
+    description: 'Data inicial do período no formato YYYY-MM (ex: 2010-02). Use com periodTo para períodos mensais customizados.',
+    example: '2010-02',
   })
-  @ValidateNested()
-  @Type(() => PeriodDto)
+  @IsString()
   @IsOptional()
-  period?: PeriodDto;
+  periodFrom?: string;
+
+  @ApiPropertyOptional({
+    type: String,
+    description: 'Data final do período no formato YYYY-MM (ex: 2010-08). Use com periodFrom para períodos mensais customizados.',
+    example: '2010-08',
+  })
+  @IsString()
+  @IsOptional()
+  periodTo?: string;
 
   @ApiPropertyOptional({
     enum: AggregationLevel,
@@ -447,6 +473,85 @@ export class NationalComparisonResponseDto {
 
   @ApiProperty({ type: NationalComparisonDto })
   data!: NationalComparisonDto;
+}
+
+export class StateRankingSectorDto {
+  @ApiProperty()
+  code!: string;
+
+  @ApiProperty()
+  name!: string;
+
+  @ApiProperty({ description: VALUE_DESCRIPTION })
+  value!: number;
+
+  @ApiProperty()
+  percentage!: number;
+}
+
+export class StateRankingPartnerDto {
+  @ApiProperty()
+  country!: string;
+
+  @ApiProperty({ description: VALUE_DESCRIPTION })
+  value!: number;
+
+  @ApiProperty()
+  percentage!: number;
+}
+
+export class StateRankingProductDto {
+  @ApiProperty()
+  code!: string;
+
+  @ApiProperty()
+  description!: string;
+
+  @ApiProperty({ description: VALUE_DESCRIPTION })
+  value!: number;
+
+  @ApiProperty()
+  percentage!: number;
+}
+
+export class StateRankingItemDto {
+  @ApiProperty()
+  rank!: number;
+
+  @ApiProperty()
+  state!: string;
+
+  @ApiProperty({ description: VALUE_DESCRIPTION })
+  value!: number;
+
+  @ApiProperty()
+  participation!: number;
+
+  @ApiPropertyOptional({
+    type: [StateRankingSectorDto],
+    description: 'Principais setores ISIC do estado.',
+  })
+  topSectors?: StateRankingSectorDto[];
+
+  @ApiPropertyOptional({
+    type: [StateRankingPartnerDto],
+    description: 'Principais países parceiros do estado.',
+  })
+  topPartners?: StateRankingPartnerDto[];
+
+  @ApiPropertyOptional({
+    type: [StateRankingProductDto],
+    description: 'Principais produtos exportados/importados pelo estado.',
+  })
+  topProducts?: StateRankingProductDto[];
+}
+
+export class StatesRankingResponseDto {
+  @ApiProperty()
+  success!: boolean;
+
+  @ApiProperty({ type: [StateRankingItemDto] })
+  data!: StateRankingItemDto[];
 }
 
 export class DashboardDataDto {
