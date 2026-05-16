@@ -1,0 +1,100 @@
+{
+    "tasks": [
+        {
+            "attachments": [
+                {
+                    "id": "74697b2b-a499-4241-b1ab-ad6ac45a9a6a",
+                    "type": "ElasticNetworkInterface",
+                    "status": "ATTACHED",
+                    "details": [
+                        {
+                            "name": "subnetId",
+                            "value": "subnet-0f53f8a8e0de861b9"
+                        },
+                        {
+                            "name": "networkInterfaceId",
+                            "value": "eni-029afe4818fbef69f"
+                        },
+                        {
+                            "name": "macAddress",
+                            "value": "02:c1:b8:81:f9:e7"
+                        },
+                        {
+                            "name": "privateDnsName",
+                            "value": "ip-172-31-9-100.us-east-2.compute.internal"
+                        },
+                        {
+                            "name": "privateIPv4Address",
+                            "value": "172.31.9.100"
+                        }
+                    ]
+                }
+            ],
+            "attributes": [
+                {
+                    "name": "ecs.cpu-architecture",
+                    "value": "x86_64"
+                }
+            ],
+            "availabilityZone": "us-east-2a",
+            "capacityProviderName": "FARGATE",
+            "clusterArn": "arn:aws:ecs:us-east-2:194133064894:cluster/elastic-zebra-c6v7sm",
+            "connectivity": "CONNECTED",
+            "connectivityAt": "2026-02-13T00:15:01.036000-03:00",
+            "containers": [
+                {
+                    "containerArn": "arn:aws:ecs:us-east-2:194133064894:container/elastic-zebra-c6v7sm/a7e2fc95471942219aa261be1ed3e4f2/e0cd6452-2110-4083-a85e-00b7a8e495bd",
+                    "taskArn": "arn:aws:ecs:us-east-2:194133064894:task/elastic-zebra-c6v7sm/a7e2fc95471942219aa261be1ed3e4f2",
+                    "name": "comexstat-api",
+                    "image": "194133064894.dkr.ecr.us-east-2.amazonaws.com/sri/comexstat:latest",
+                    "imageDigest": "sha256:efc2ebf9d380dfa6412ab8e792d12199de20be45400062268c50fe786e4de0d8",
+                    "runtimeId": "a7e2fc95471942219aa261be1ed3e4f2-2691220716",
+                    "lastStatus": "RUNNING",
+                    "networkBindings": [],
+                    "networkInterfaces": [
+                        {
+                            "attachmentId": "74697b2b-a499-4241-b1ab-ad6ac45a9a6a",
+                            "privateIpv4Address": "172.31.9.100"
+                        }
+                    ],
+                    "healthStatus": "UNKNOWN",
+                    "cpu": "0"
+                }
+            ],
+            "cpu": "1024",
+            "createdAt": "2026-02-13T00:14:55.888000-03:00",
+            "desiredStatus": "RUNNING",
+            "enableExecuteCommand": false,
+            "group": "service:comexstat-api",
+            "healthStatus": "UNKNOWN",
+            "lastStatus": "RUNNING",
+            "launchType": "FARGATE",
+            "memory": "3072",
+            "overrides": {
+                "containerOverrides": [
+                    {
+                        "name": "comexstat-api"
+                    }
+                ],
+                "inferenceAcceleratorOverrides": []
+            },
+            "platformVersion": "1.4.0",
+            "platformFamily": "Linux",
+            "pullStartedAt": "2026-02-13T00:15:08.178000-03:00",
+            "pullStoppedAt": "2026-02-13T00:16:02.204000-03:00",
+            "startedAt": "2026-02-13T00:16:04.757000-03:00",
+            "startedBy": "ecs-svc/0232728424583341693",
+            "tags": [],
+            "taskArn": "arn:aws:ecs:us-east-2:194133064894:task/elastic-zebra-c6v7sm/a7e2fc95471942219aa261be1ed3e4f2",
+            "taskDefinitionArn": "arn:aws:ecs:us-east-2:194133064894:task-definition/comexstat-api-task:2",
+            "version": 3,
+            "ephemeralStorage": {
+                "sizeInGiB": 20
+            },
+            "fargateEphemeralStorage": {
+                "sizeInGiB": 20
+            }
+        }
+    ],
+    "failures": []
+}
