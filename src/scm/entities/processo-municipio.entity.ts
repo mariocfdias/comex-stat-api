@@ -1,23 +1,12 @@
-import { Entity, PrimaryColumn, ManyToOne, JoinColumn, Index } from 'typeorm';
-import { Processo } from './processo.entity';
-import { Municipio } from './municipio.entity';
+import { Entity, PrimaryColumn, Index } from 'typeorm';
 
-@Entity('processo_municipio')
+@Entity('scm_processo_municipio')
 @Index(['IDMunicipio'])
 @Index(['DSProcesso'])
 export class ProcessoMunicipio {
-  @PrimaryColumn({ type: 'varchar', length: 50 })
+  @PrimaryColumn({ name: 'ds_processo', type: 'varchar', length: 50 })
   DSProcesso: string;
 
-  @PrimaryColumn({ type: 'integer' })
+  @PrimaryColumn({ name: 'id_municipio', type: 'integer' })
   IDMunicipio: number;
-
-  // Relationships
-  @ManyToOne(() => Processo, processo => processo.processoMunicipios, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'DSProcesso' })
-  processo?: Processo;
-
-  @ManyToOne(() => Municipio, municipio => municipio.processoMunicipios)
-  @JoinColumn({ name: 'IDMunicipio' })
-  municipio?: Municipio;
 }

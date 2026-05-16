@@ -1,6 +1,20 @@
 import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import type { Cache } from 'cache-manager';
+import {
   AggregationLevel,
   NationalComparisonDto,
+  StateRankingItemDto,
+  StateRankingSectorDto,
+  StateRankingPartnerDto,
+  StateRankingProductDto,
   PeriodDto,
   PartnerCountryDto,
   ProductDto,
@@ -11,252 +25,80 @@ import {
   TimeSeriesSeries,
   TradeFlow,
 } from './dto/comexstat.dto';
-import { CACHE_MANAGER } from '@nestjs/cache-manager';
-import {
-  BadRequestException,
-  HttpException,
-  HttpStatus,
-  Inject,
-  Injectable,
-  Logger,
-  ServiceUnavailableException,
-} from '@nestjs/common';
-import { AxiosError } from 'axios';
-import type { AxiosInstance } from 'axios';
-import type { Cache } from 'cache-manager';
-
-interface Period {
-  from: string;
-  to: string;
-}
-
-interface Filter {
-  filter: string;
-  values: (string | number)[];
-}
-
-interface GeneralQueryParams {
-  flow: TradeFlow.EXPORT | TradeFlow.IMPORT;
-  monthDetail: boolean;
-  period: Period;
-  filters?: Filter[];
-  details?: string[];
-  metrics?: string[];
-}
-
-interface ComexStatResponse {
-  data: {
-    list: any[];
-  };
-  success: boolean;
-  message: string | null;
-}
-
-export const COMEXSTAT_HTTP_CLIENT = Symbol('COMEXSTAT_HTTP_CLIENT');
+import { ComexstatSummary } from './entities/comexstat-summary.entity';
+import { ComexstatSummaryHistory } from './entities/comexstat-summary-history.entity';
+import { ComexstatTimeseries } from './entities/comexstat-timeseries.entity';
+import { ComexstatPartner } from './entities/comexstat-partner.entity';
+import { ComexstatProduct } from './entities/comexstat-product.entity';
+import { ComexstatNational } from './entities/comexstat-national.entity';
+import { ComexstatStatesRanking } from './entities/comexstat-states-ranking.entity';
 
 @Injectable()
 export class ComexstatService {
   private readonly logger = new Logger(ComexstatService.name);
-  private readonly CEARA_STATE_ID = 23;
   private readonly cacheNamespace = 'comexstat';
   private readonly cacheTtlSeconds = 60 * 60 * 24;
 
   constructor(
-    @Inject(COMEXSTAT_HTTP_CLIENT) private readonly http: AxiosInstance,
     @Inject(CACHE_MANAGER) private readonly cache: Cache,
+    @InjectRepository(ComexstatSummary)
+    private readonly summaryRepo: Repository<ComexstatSummary>,
+    @InjectRepository(ComexstatSummaryHistory)
+    private readonly summaryHistoryRepo: Repository<ComexstatSummaryHistory>,
+    @InjectRepository(ComexstatTimeseries)
+    private readonly timeseriesRepo: Repository<ComexstatTimeseries>,
+    @InjectRepository(ComexstatPartner)
+    private readonly partnerRepo: Repository<ComexstatPartner>,
+    @InjectRepository(ComexstatProduct)
+    private readonly productRepo: Repository<ComexstatProduct>,
+    @InjectRepository(ComexstatNational)
+    private readonly nationalRepo: Repository<ComexstatNational>,
+    @InjectRepository(ComexstatStatesRanking)
+    private readonly statesRankingRepo: Repository<ComexstatStatesRanking>,
   ) {}
 
   async getSummaryData(
     periodType: SummaryPeriod,
     customPeriod?: PeriodDto,
   ): Promise<SummaryDataDto> {
-    const cacheKey = this.buildCacheKey('summary', {
-      periodType,
-      customPeriod,
-    });
-
+    const cacheKey = this.buildCacheKey('summary', { periodType, customPeriod });
     return this.getCachedValue(cacheKey, async () => {
-      const { currentYear, currentMonth, previousMonth, previousMonthYear } =
-        this.getCurrentDateInfo();
-
-      let period: Period;
-      let periodLabel: string;
-
-      switch (periodType) {
-        case SummaryPeriod.CURRENT_MONTH:
-          period = {
-            from: this.formatPeriod(previousMonthYear, previousMonth),
-            to: this.formatPeriod(previousMonthYear, previousMonth),
-          };
-          periodLabel = `${this.formatMonthAbbreviation(previousMonth)}/${previousMonthYear}`;
-          break;
-
-        case SummaryPeriod.YEAR_TO_DATE:
-          period = {
-            from: this.formatPeriod(currentYear, 1),
-            to: this.formatPeriod(currentYear, currentMonth),
-          };
-          periodLabel = `Jan-${this.formatMonthAbbreviation(currentMonth)}/${currentYear}`;
-          break;
-
-        case SummaryPeriod.LAST_YEAR:
-          period = {
-            from: this.formatPeriod(currentYear - 1, 1),
-            to: this.formatPeriod(currentYear - 1, 12),
-          };
-          periodLabel = `${currentYear - 1}`;
-          break;
-
-        case SummaryPeriod.CUSTOM:
-          if (!customPeriod) {
-            throw new BadRequestException(
-              'Custom period is required when period type is custom.',
-            );
-          }
-          period = customPeriod;
-          periodLabel = `${customPeriod.from} - ${customPeriod.to}`;
-          break;
-
-        default:
-          throw new BadRequestException('Unsupported period type.');
+      const row = await this.summaryRepo.findOne({ where: { periodType } });
+      if (!row) {
+        return { period: periodType, exports: 0, imports: 0, tradeBalance: 0, tradeCurrent: 0 };
       }
-
-      const [exportResponse, importResponse] = await Promise.all([
-        this.queryGeneral({
-          flow: TradeFlow.EXPORT,
-          monthDetail: false,
-          period,
-          filters: [{ filter: 'state', values: [this.CEARA_STATE_ID] }],
-          metrics: ['metricFOB'],
-        }),
-        this.queryGeneral({
-          flow: TradeFlow.IMPORT,
-          monthDetail: false,
-          period,
-          filters: [{ filter: 'state', values: [this.CEARA_STATE_ID] }],
-          metrics: ['metricFOB', 'metricCIF'],
-        }),
-      ]);
-
-      const exportsValue = this.toMillions(
-        exportResponse.data.list[0]?.metricFOB ?? 0,
-      );
-      const importsValue = this.toMillions(
-        importResponse.data.list[0]?.metricFOB ?? 0,
-      );
-
+      const exp = Number(row.exportFob ?? 0);
+      const imp = Number(row.importFob ?? 0);
       return {
-        period: periodLabel,
-        exports: exportsValue,
-        imports: importsValue,
-        tradeBalance: exportsValue - importsValue,
-        tradeCurrent: exportsValue + importsValue,
+        period: row.periodLabel,
+        exports: exp,
+        imports: imp,
+        tradeBalance: Number(row.balance ?? 0),
+        tradeCurrent: exp + imp,
       };
     });
   }
 
   async getSummaryHistory(period: PeriodDto): Promise<SummaryDataDto[]> {
-    const monthRange = this.generateMonthsRange(period);
-
-    if (monthRange.length === 0) {
-      throw new BadRequestException(
-        'É necessário informar um intervalo de meses válido.',
-      );
-    }
-
     const cacheKey = this.buildCacheKey('summary-history', period);
-
     return this.getCachedValue(cacheKey, async () => {
-      const requestedKeys = new Set(monthRange.map((month) => month.key));
-      const monthMap = new Map<string, SummaryDataDto>();
+      const [fromYear, fromMonth] = period.from.split('-').map(Number);
+      const [toYear, toMonth] = period.to.split('-').map(Number);
 
-      monthRange.forEach(({ key, year, month }) => {
-        monthMap.set(key, {
-          period: `${this.formatMonthAbbreviation(month)}/${year}`,
-          exports: 0,
-          imports: 0,
-          tradeBalance: 0,
-          tradeCurrent: 0,
-        });
-      });
+      const rows = await this.summaryHistoryRepo
+        .createQueryBuilder('h')
+        .where('(h.year > :fromYear OR (h.year = :fromYear AND h.month >= :fromMonth))', { fromYear, fromMonth })
+        .andWhere('(h.year < :toYear OR (h.year = :toYear AND h.month <= :toMonth))', { toYear, toMonth })
+        .orderBy('h.year', 'ASC').addOrderBy('h.month', 'ASC')
+        .getMany();
 
-      const queryPeriod = {
-        from: this.formatPeriod(monthRange[0].year, monthRange[0].month),
-        to: this.formatPeriod(
-          monthRange[monthRange.length - 1].year,
-          monthRange[monthRange.length - 1].month,
-        ),
-      };
-
-      const [exportResponse, importResponse] = await Promise.all([
-        this.queryGeneral({
-          flow: TradeFlow.EXPORT,
-          monthDetail: true,
-          period: queryPeriod,
-          filters: [{ filter: 'state', values: [this.CEARA_STATE_ID] }],
-          metrics: ['metricFOB'],
-        }),
-        this.queryGeneral({
-          flow: TradeFlow.IMPORT,
-          monthDetail: true,
-          period: queryPeriod,
-          filters: [{ filter: 'state', values: [this.CEARA_STATE_ID] }],
-          metrics: ['metricFOB', 'metricCIF'],
-        }),
-      ]);
-
-      const handleResponse = (
-        response: ComexStatResponse,
-        kind: TradeFlow.EXPORT | TradeFlow.IMPORT,
-      ) => {
-        response.data.list.forEach((item) => {
-          const monthNumberRaw = item.monthNumber ?? item.month;
-          const monthNumber = Number(monthNumberRaw);
-          const year = Number(item.year);
-
-          if (!Number.isFinite(monthNumber) || !Number.isFinite(year)) {
-            return;
-          }
-
-          const key = `${year}-${String(monthNumber).padStart(2, '0')}`;
-          if (!requestedKeys.has(key)) {
-            return;
-          }
-
-          const record = monthMap.get(key);
-          if (!record) {
-            return;
-          }
-
-          const value = this.toMillions(item.metricFOB);
-
-          if (kind === TradeFlow.EXPORT) {
-            record.exports = value;
-          } else {
-            record.imports = value;
-          }
-        });
-      };
-
-      handleResponse(exportResponse, TradeFlow.EXPORT);
-      handleResponse(importResponse, TradeFlow.IMPORT);
-
-      monthRange.forEach(({ key }) => {
-        const record = monthMap.get(key);
-        if (!record) {
-          return;
-        }
-
-        record.tradeBalance = (record.exports ?? 0) - (record.imports ?? 0);
-        record.tradeCurrent = (record.exports ?? 0) + (record.imports ?? 0);
-      });
-
-      return monthRange.map(({ key }) => {
-        const record = monthMap.get(key)!;
-        const [year, month] = key.split('-');
-        record.period = `${this.formatMonthAbbreviation(Number(month))}/${year}`;
-        return record;
-      });
+      return rows.map((r) => ({
+        period: `${r.year}-${String(r.month).padStart(2, '0')}`,
+        exports: Number(r.exportFob ?? 0),
+        imports: Number(r.importFob ?? 0),
+        tradeBalance: Number(r.balance ?? 0),
+        tradeCurrent: Number(r.exportFob ?? 0) + Number(r.importFob ?? 0),
+      }));
     });
   }
 
@@ -265,140 +107,40 @@ export class ComexstatService {
     series: TimeSeriesSeries,
     startYear: number,
     endYear?: number,
-    includeSectors = false,
+    _includeSectors?: boolean,
   ): Promise<TimeSeriesDataDto[]> {
-    const cacheKey = this.buildCacheKey('timeseries', {
-      periodicity,
-      series,
-      startYear,
-      endYear,
-      includeSectors,
-    });
-
+    const cacheKey = this.buildCacheKey('timeseries', { periodicity, series, startYear, endYear });
     return this.getCachedValue(cacheKey, async () => {
-      const { currentYear } = this.getCurrentDateInfo();
-      const effectiveEndYear = endYear ?? currentYear;
+      const effectiveEnd = endYear ?? new Date().getFullYear();
+      const seriesValues =
+        series === TimeSeriesSeries.CURRENT || series === TimeSeriesSeries.BALANCE
+          ? ['export', 'import']
+          : [series as string];
 
-      const period: Period = {
-        from: this.formatPeriod(startYear, 1),
-        to: this.formatPeriod(effectiveEndYear, 12),
-      };
+      const rows = await this.timeseriesRepo
+        .createQueryBuilder('t')
+        .where('t.periodicity = :periodicity', { periodicity })
+        .andWhere('t.series IN (:...seriesValues)', { seriesValues })
+        .andWhere('t.year >= :startYear AND t.year <= :endYear', { startYear, endYear: effectiveEnd })
+        .orderBy('t.year', 'ASC').addOrderBy('t.month', 'ASC')
+        .getMany();
 
-      const monthDetail = periodicity === TimeSeriesPeriodicity.MONTHLY;
-      const details = includeSectors ? ['ISICSection'] : [];
-
-      const requests: Array<{
-        kind: TradeFlow.EXPORT | TradeFlow.IMPORT;
-        response: Promise<ComexStatResponse>;
-      }> = [];
-
-      if (
-        series === TimeSeriesSeries.EXPORT ||
-        series === TimeSeriesSeries.CURRENT ||
-        series === TimeSeriesSeries.BALANCE
-      ) {
-        requests.push({
-          kind: TradeFlow.EXPORT,
-          response: this.queryGeneral({
-            flow: TradeFlow.EXPORT,
-            monthDetail,
-            period,
-            filters: [{ filter: 'state', values: [this.CEARA_STATE_ID] }],
-            details,
-            metrics: ['metricFOB'],
-          }),
-        });
+      const byPeriod = new Map<string, TimeSeriesDataDto>();
+      for (const row of rows) {
+        const key = periodicity === TimeSeriesPeriodicity.MONTHLY
+          ? `${row.year}-${String(row.month).padStart(2, '0')}`
+          : String(row.year);
+        if (!byPeriod.has(key)) byPeriod.set(key, { period: key, year: String(row.year) });
+        const entry = byPeriod.get(key)!;
+        if (row.series === 'export') entry.exports = Number(row.value ?? 0);
+        if (row.series === 'import') entry.imports = Number(row.value ?? 0);
       }
 
-      if (
-        series === TimeSeriesSeries.IMPORT ||
-        series === TimeSeriesSeries.CURRENT ||
-        series === TimeSeriesSeries.BALANCE
-      ) {
-        requests.push({
-          kind: TradeFlow.IMPORT,
-          response: this.queryGeneral({
-            flow: TradeFlow.IMPORT,
-            monthDetail,
-            period,
-            filters: [{ filter: 'state', values: [this.CEARA_STATE_ID] }],
-            details,
-            metrics: ['metricFOB'],
-          }),
-        });
-      }
-
-      const responses = await Promise.all(
-        requests.map(({ response }) => response),
-      );
-      const dataMap = new Map<string, TimeSeriesDataDto>();
-
-      responses.forEach((response, index) => {
-        const kind = requests[index].kind;
-        response.data.list.forEach((item) => {
-          const monthNumberRaw = item.monthNumber ?? item.month;
-          const monthNumber = Number(monthNumberRaw);
-          const monthKey =
-            monthDetail && Number.isFinite(monthNumber)
-              ? String(monthNumber).padStart(2, '0')
-              : undefined;
-          const key =
-            monthDetail && monthKey
-              ? `${item.year}-${monthKey}`
-              : String(item.year);
-
-          if (!dataMap.has(key)) {
-            dataMap.set(key, {
-              period: key,
-              year: String(item.year),
-              month: monthKey,
-            });
-          }
-
-          const record = dataMap.get(key)!;
-          const value = this.toMillions(item.metricFOB);
-
-          if (kind === TradeFlow.EXPORT) {
-            record.exports = value;
-          } else if (kind === TradeFlow.IMPORT) {
-            record.imports = value;
-          }
-
-          if (includeSectors && item.ISICSection) {
-            const sectors = record.sectors ?? [];
-            const rawCode = item.coIsicSection ?? item.ISICSectionCode;
-            sectors.push({
-              code: rawCode !== undefined ? String(rawCode) : '',
-              name: item.ISICSection,
-              value,
-            });
-            record.sectors = sectors;
-          }
-        });
-      });
-
-      const results = Array.from(dataMap.values());
-
-      results.forEach((item) => {
-        if (
-          series === TimeSeriesSeries.CURRENT &&
-          item.exports !== undefined &&
-          item.imports !== undefined
-        ) {
-          item.current = item.exports + item.imports;
-        }
-        if (
-          series === TimeSeriesSeries.BALANCE &&
-          item.exports !== undefined &&
-          item.imports !== undefined
-        ) {
-          item.balance = item.exports - item.imports;
-        }
-      });
-
-      results.sort((a, b) => a.period.localeCompare(b.period));
-
-      return results;
+      return Array.from(byPeriod.values()).map((e) => ({
+        ...e,
+        balance: (e.exports ?? 0) - (e.imports ?? 0),
+        current: (e.exports ?? 0) + (e.imports ?? 0),
+      }));
     });
   }
 
@@ -408,144 +150,33 @@ export class ComexstatService {
     customPeriod?: PeriodDto,
     topN = 10,
   ): Promise<PartnerCountryDto[]> {
-    const cacheKey = this.buildCacheKey('partners', {
-      flow,
-      periodType,
-      customPeriod,
-      topN,
-    });
-
+    const cacheKey = this.buildCacheKey('partners', { flow, periodType, customPeriod, topN });
     return this.getCachedValue(cacheKey, async () => {
-      const { currentYear, currentMonth, previousMonth, previousMonthYear } =
-        this.getCurrentDateInfo();
+      const { from, to } = this.resolvePeriod(periodType, customPeriod);
+      const flows = flow === TradeFlow.CURRENT
+        ? ['export', 'import']
+        : [flow as string];
 
-      let period: Period;
+      const rows = await this.partnerRepo
+        .createQueryBuilder('p')
+        .where('p.flow IN (:...flows)', { flows })
+        .andWhere('p.periodFrom = :from AND p.periodTo = :to', { from, to })
+        .orderBy('p.fobValue', 'DESC')
+        .getMany();
 
-      switch (periodType) {
-        case SummaryPeriod.CURRENT_MONTH:
-          period = {
-            from: this.formatPeriod(previousMonthYear, previousMonth),
-            to: this.formatPeriod(previousMonthYear, previousMonth),
-          };
-          break;
-        case SummaryPeriod.YEAR_TO_DATE:
-          period = {
-            from: this.formatPeriod(currentYear, 1),
-            to: this.formatPeriod(currentYear, currentMonth),
-          };
-          break;
-        case SummaryPeriod.CUSTOM:
-          if (!customPeriod) {
-            throw new BadRequestException(
-              'Custom period is required when period type is custom.',
-            );
-          }
-          period = customPeriod;
-          break;
-        default:
-          throw new BadRequestException('Unsupported period type.');
+      const byCountry = new Map<string, PartnerCountryDto>();
+      for (const r of rows) {
+        const name = r.countryName ?? r.countryCode;
+        if (!byCountry.has(name)) byCountry.set(name, { country: name });
+        const entry = byCountry.get(name)!;
+        if (r.flow === 'export') entry.exports = Number(r.fobValue ?? 0);
+        if (r.flow === 'import') entry.imports = Number(r.fobValue ?? 0);
       }
 
-      const requests: Array<{
-        kind: TradeFlow.EXPORT | TradeFlow.IMPORT;
-        response: Promise<ComexStatResponse>;
-      }> = [];
-
-      if (flow === TradeFlow.EXPORT || flow === TradeFlow.CURRENT) {
-        requests.push({
-          kind: TradeFlow.EXPORT,
-          response: this.queryGeneral({
-            flow: TradeFlow.EXPORT,
-            monthDetail: false,
-            period,
-            filters: [{ filter: 'state', values: [this.CEARA_STATE_ID] }],
-            details: ['country'],
-            metrics: ['metricFOB'],
-          }),
-        });
-      }
-
-      if (flow === TradeFlow.IMPORT || flow === TradeFlow.CURRENT) {
-        requests.push({
-          kind: TradeFlow.IMPORT,
-          response: this.queryGeneral({
-            flow: TradeFlow.IMPORT,
-            monthDetail: false,
-            period,
-            filters: [{ filter: 'state', values: [this.CEARA_STATE_ID] }],
-            details: ['country'],
-            metrics: ['metricFOB'],
-          }),
-        });
-      }
-
-      const responses = await Promise.all(
-        requests.map(({ response }) => response),
-      );
-      const countryMap = new Map<string, PartnerCountryDto>();
-
-      responses.forEach((response, index) => {
-        const kind = requests[index].kind;
-
-        response.data.list.forEach((item) => {
-          const countryName = item.country ?? item.countryName;
-          if (!countryName) {
-            return;
-          }
-
-          if (!countryMap.has(countryName)) {
-            countryMap.set(countryName, { country: countryName });
-          }
-
-          const record = countryMap.get(countryName)!;
-          const value = this.toMillions(item.metricFOB);
-
-          if (kind === TradeFlow.EXPORT) {
-            record.exports = value;
-          } else if (kind === TradeFlow.IMPORT) {
-            record.imports = value;
-          }
-        });
-      });
-
-      const results = Array.from(countryMap.values());
-      let total = 0;
-
-      results.forEach((item) => {
-        if (flow === TradeFlow.CURRENT) {
-          item.current = (item.exports ?? 0) + (item.imports ?? 0);
-          total += item.current;
-        } else if (flow === TradeFlow.EXPORT) {
-          total += item.exports ?? 0;
-        } else {
-          total += item.imports ?? 0;
-        }
-
-        item.balance = (item.exports ?? 0) - (item.imports ?? 0);
-      });
-
-      results.forEach((item) => {
-        const base =
-          flow === TradeFlow.EXPORT
-            ? item.exports
-            : flow === TradeFlow.IMPORT
-              ? item.imports
-              : item.current;
-
-        item.percentage =
-          total > 0 && base !== undefined ? (base / total) * 100 : 0;
-      });
-
-      const sortKey =
-        flow === TradeFlow.EXPORT
-          ? 'exports'
-          : flow === TradeFlow.IMPORT
-            ? 'imports'
-            : 'current';
-
-      results.sort((a, b) => (b[sortKey] ?? 0) - (a[sortKey] ?? 0));
-
-      return results.slice(0, topN);
+      return Array.from(byCountry.values())
+        .map((e) => ({ ...e, current: (e.exports ?? 0) + (e.imports ?? 0), balance: (e.exports ?? 0) - (e.imports ?? 0) }))
+        .sort((a, b) => (b.current ?? 0) - (a.current ?? 0))
+        .slice(0, topN);
     });
   }
 
@@ -556,76 +187,27 @@ export class ComexstatService {
     aggregation: AggregationLevel,
     topN = 20,
   ): Promise<ProductDto[]> {
-    const cacheKey = this.buildCacheKey('products', {
-      flow,
-      periodicity,
-      period:
-        typeof period === 'number' || period === undefined
-          ? period
-          : { ...period },
-      aggregation,
-      topN,
-    });
-
+    const cacheKey = this.buildCacheKey('products', { flow, periodicity, period, aggregation, topN });
     return this.getCachedValue(cacheKey, async () => {
-      const periodOrYear = period ?? this.getCurrentDateInfo().currentYear - 1;
-      let queryPeriod: Period;
+      const { from, to } = this.resolvePeriodFromInput(period, periodicity);
 
-      if (typeof periodOrYear === 'number') {
-        queryPeriod = {
-          from: this.formatPeriod(periodOrYear, 1),
-          to: this.formatPeriod(periodOrYear, 12),
-        };
-      } else {
-        queryPeriod = periodOrYear;
-      }
+      const rows = await this.productRepo
+        .createQueryBuilder('p')
+        .where('p.flow = :flow', { flow })
+        .andWhere('p.periodicity = :periodicity', { periodicity })
+        .andWhere('p.periodFrom = :from AND p.periodTo = :to', { from, to })
+        .andWhere('p.aggregation = :aggregation', { aggregation })
+        .orderBy('p.fobValue', 'DESC')
+        .limit(topN)
+        .getMany();
 
-      const monthDetail = periodicity === TimeSeriesPeriodicity.MONTHLY;
-
-      const response = await this.queryGeneral({
-        flow,
-        monthDetail,
-        period: queryPeriod,
-        filters: [{ filter: 'state', values: [this.CEARA_STATE_ID] }],
-        details: [aggregation],
-        metrics: ['metricFOB', 'metricKG'],
-      });
-
-      const fieldMap: Record<AggregationLevel, { code: string; desc: string }> =
-        {
-          [AggregationLevel.NCM]: { code: 'ncmCode', desc: 'ncm' },
-          [AggregationLevel.HEADING]: { code: 'headingCode', desc: 'heading' },
-          [AggregationLevel.CHAPTER]: { code: 'chapterCode', desc: 'chapter' },
-        };
-
-      const fields = fieldMap[aggregation];
-      const products: ProductDto[] = [];
-      let totalValue = 0;
-
-      response.data.list.forEach((item) => {
-        const value = this.toMillions(item.metricFOB);
-        const weight = item.metricKG ? Number(item.metricKG) : undefined;
-
-        products.push({
-          code: String(item[fields.code] ?? ''),
-          description: item[fields.desc] ?? '',
-          value,
-          weight: Number.isFinite(weight) ? weight : undefined,
-          quantity: undefined,
-          percentage: 0,
-        });
-
-        totalValue += value;
-      });
-
-      products.forEach((product) => {
-        product.percentage =
-          totalValue > 0 ? (product.value / totalValue) * 100 : 0;
-      });
-
-      products.sort((a, b) => b.value - a.value);
-
-      return products.slice(0, topN);
+      return rows.map((r) => ({
+        code: r.code,
+        description: r.description ?? '',
+        value: Number(r.fobValue ?? 0),
+        weight: r.weightKg ? Number(r.weightKg) : undefined,
+        percentage: r.share ? Number(r.share) * 100 : undefined,
+      }));
     });
   }
 
@@ -633,105 +215,75 @@ export class ComexstatService {
     flow: TradeFlow.EXPORT | TradeFlow.IMPORT,
     period: PeriodDto,
   ): Promise<NationalComparisonDto> {
-    const cacheKey = this.buildCacheKey('national-comparison', {
-      flow,
-      period,
-    });
-
+    const cacheKey = this.buildCacheKey('national-comparison', { flow, period });
     return this.getCachedValue(cacheKey, async () => {
-      const [nationalResponse, cearaResponse, statesResponse] =
-        await Promise.all([
-          this.queryGeneral({
-            flow,
-            monthDetail: false,
-            period,
-            metrics: ['metricFOB'],
-          }),
-          this.queryGeneral({
-            flow,
-            monthDetail: false,
-            period,
-            filters: [{ filter: 'state', values: [this.CEARA_STATE_ID] }],
-            metrics: ['metricFOB'],
-          }),
-          this.queryGeneral({
-            flow,
-            monthDetail: false,
-            period,
-            details: ['state'],
-            metrics: ['metricFOB'],
-          }),
-        ]);
-
-      const nationalTotal = Number(
-        nationalResponse.data.list[0]?.metricFOB ?? 0,
-      );
-      const cearaTotal = Number(cearaResponse.data.list[0]?.metricFOB ?? 0);
-
-      const participation =
-        nationalTotal > 0 ? (cearaTotal / nationalTotal) * 100 : 0;
-
-      const states = statesResponse.data.list
-        .map((item) => ({
-          state: item.state ?? item.stateName,
-          value: Number(item.metricFOB ?? 0),
-        }))
-        .sort((a, b) => b.value - a.value);
-
-      const rankingIndex = states.findIndex((state) => state.state === 'Ceará');
-      const ranking = rankingIndex >= 0 ? rankingIndex + 1 : 0;
-
-      return { participation, ranking };
+      const row = await this.nationalRepo.findOne({
+        where: { flow, periodFrom: period.from, periodTo: period.to },
+      });
+      if (!row) return { participation: 0, ranking: 0 };
+      return {
+        participation: Number(row.cearaShare ?? 0) * 100,
+        ranking: row.cearaRank ?? 0,
+      };
     });
   }
 
-  private parseMonth(value: string): { year: number; month: number } {
-    const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(value);
+  async getStatesRanking(
+    flow: TradeFlow.EXPORT | TradeFlow.IMPORT,
+    period: PeriodDto,
+  ): Promise<StateRankingItemDto[]> {
+    const cacheKey = this.buildCacheKey('states-ranking', { flow, period });
+    return this.getCachedValue(cacheKey, async () => {
+      const rows = await this.statesRankingRepo.find({
+        where: { flow, periodFrom: period.from, periodTo: period.to },
+        order: { ranking: 'ASC' },
+      });
 
-    if (!match) {
-      throw new BadRequestException(
-        `Formato de mês inválido: ${value}. Use o padrão YYYY-MM.`,
-      );
-    }
-
-    return { year: Number(match[1]), month: Number(match[2]) };
+      return rows.map((r) => ({
+        rank: r.ranking ?? 0,
+        state: r.stateName ?? r.stateCode,
+        value: Number(r.fobValue ?? 0),
+        participation: Number(r.share ?? 0) * 100,
+        topSectors: (r.sectors as StateRankingSectorDto[]) ?? [],
+        topPartners: (r.topPartners as StateRankingPartnerDto[]) ?? [],
+        topProducts: (r.topProducts as StateRankingProductDto[]) ?? [],
+      }));
+    });
   }
 
-  private generateMonthsRange(
-    period: PeriodDto,
-  ): Array<{ year: number; month: number; key: string }> {
-    const start = this.parseMonth(period.from);
-    const end = this.parseMonth(period.to);
+  // ── Helpers ──────────────────────────────────────────────────────────────────
 
-    if (
-      start.year > end.year ||
-      (start.year === end.year && start.month > end.month)
-    ) {
-      throw new BadRequestException(
-        'O período inicial deve ser anterior ou igual ao período final.',
-      );
-    }
+  private resolvePeriod(periodType: SummaryPeriod, customPeriod?: PeriodDto): { from: string; to: string } {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
+    const fmt = (y: number, m: number) => `${y}-${String(m).padStart(2, '0')}`;
 
-    const months: Array<{ year: number; month: number; key: string }> = [];
-    let currentYear = start.year;
-    let currentMonth = start.month;
-
-    while (
-      currentYear < end.year ||
-      (currentYear === end.year && currentMonth <= end.month)
-    ) {
-      const key = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
-      months.push({ year: currentYear, month: currentMonth, key });
-
-      if (currentMonth === 12) {
-        currentMonth = 1;
-        currentYear += 1;
-      } else {
-        currentMonth += 1;
+    switch (periodType) {
+      case SummaryPeriod.CURRENT_MONTH: {
+        const prevMonth = month === 1 ? 12 : month - 1;
+        const prevYear = month === 1 ? year - 1 : year;
+        return { from: fmt(prevYear, prevMonth), to: fmt(prevYear, prevMonth) };
       }
+      case SummaryPeriod.YEAR_TO_DATE:
+        return { from: fmt(year, 1), to: fmt(year, month) };
+      case SummaryPeriod.LAST_YEAR:
+        return { from: fmt(year - 1, 1), to: fmt(year - 1, 12) };
+      case SummaryPeriod.CUSTOM:
+        if (!customPeriod) throw new BadRequestException('customPeriod required for period=custom');
+        return { from: customPeriod.from, to: customPeriod.to };
     }
+  }
 
-    return months;
+  private resolvePeriodFromInput(
+    period: PeriodDto | number | undefined,
+    periodicity: TimeSeriesPeriodicity,
+  ): { from: string; to: string } {
+    if (period && typeof period === 'object') {
+      return { from: period.from, to: period.to };
+    }
+    const year = typeof period === 'number' ? period : new Date().getFullYear() - 1;
+    return { from: `${year}-01`, to: `${year}-12` };
   }
 
   private buildCacheKey(segment: string, payload: unknown): string {
@@ -740,151 +292,27 @@ export class ComexstatService {
 
   private serializeForCache(value: unknown): string {
     const normalize = (input: unknown): unknown => {
-      if (Array.isArray(input)) {
-        return input.map((item) => normalize(item));
-      }
+      if (Array.isArray(input)) return input.map(normalize);
       if (input && typeof input === 'object') {
         return Object.keys(input as Record<string, unknown>)
           .sort()
-          .reduce(
-            (acc, key) => {
-              const normalizedValue = normalize(
-                (input as Record<string, unknown>)[key],
-              );
-              if (normalizedValue !== undefined) {
-                acc[key] = normalizedValue;
-              }
-              return acc;
-            },
-            {} as Record<string, unknown>,
-          );
+          .reduce((acc, key) => {
+            const v = normalize((input as Record<string, unknown>)[key]);
+            if (v !== undefined) acc[key] = v;
+            return acc;
+          }, {} as Record<string, unknown>);
       }
       return input;
     };
-
     return JSON.stringify(normalize(value));
   }
 
-  private async getCachedValue<T>(
-    key: string,
-    resolver: () => Promise<T>,
-  ): Promise<T> {
-    if (!this.cache) {
-      return resolver();
-    }
-
+  private async getCachedValue<T>(key: string, resolver: () => Promise<T>): Promise<T> {
+    if (!this.cache) return resolver();
     const cached = await this.cache.get<T>(key);
-    if (cached !== undefined) {
-      return cached;
-    }
-
+    if (cached !== undefined) return cached;
     const value = await resolver();
     await this.cache.set(key, value, this.cacheTtlSeconds);
     return value;
-  }
-
-  private formatPeriod(year: number, month?: number): string {
-    if (month) {
-      const paddedMonth = String(month).padStart(2, '0');
-      return `${year}-${paddedMonth}`;
-    }
-
-    return `${year}-01`;
-  }
-
-  private getCurrentDateInfo(): {
-    currentYear: number;
-    currentMonth: number;
-    previousMonth: number;
-    previousMonthYear: number;
-  } {
-    const now = new Date();
-    const reference = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
-    );
-    reference.setUTCMonth(reference.getUTCMonth() - 2);
-
-    const currentYear = reference.getUTCFullYear();
-    const currentMonth = reference.getUTCMonth() + 1;
-
-    const previousDate = new Date(reference);
-    previousDate.setUTCMonth(previousDate.getUTCMonth() - 1);
-
-    return {
-      currentYear,
-      currentMonth,
-      previousMonth: previousDate.getUTCMonth() + 1,
-      previousMonthYear: previousDate.getUTCFullYear(),
-    };
-  }
-
-  private formatMonthAbbreviation(month: number): string {
-    const date = new Date(Date.UTC(2000, month - 1, 15));
-    return new Intl.DateTimeFormat('pt-BR', { month: 'short' })
-      .format(date)
-      .replace('.', '')
-      .trim();
-  }
-
-  private toMillions(value: unknown): number {
-    const numericValue =
-      typeof value === 'string'
-        ? Number(value.replace(',', '.'))
-        : Number(value);
-
-    if (!Number.isFinite(numericValue)) {
-      return 0;
-    }
-
-    return numericValue / 1_000_000;
-  }
-
-  private async queryGeneral(
-    params: GeneralQueryParams,
-  ): Promise<ComexStatResponse> {
-    try {
-      const response = await this.http.post<ComexStatResponse>(
-        '/general',
-        params,
-        {
-          params: { language: 'pt' },
-        },
-      );
-
-      if (!response.data?.success) {
-        throw new ServiceUnavailableException(
-          response.data?.message ?? 'ComexStat API request failed.',
-        );
-      }
-
-      return response.data;
-    } catch (error) {
-      this.logger.error(
-        'ComexStat API request failed',
-        error instanceof Error ? error.stack : undefined,
-        'queryGeneral',
-      );
-
-      if (error instanceof ServiceUnavailableException) {
-        throw error;
-      }
-
-      if (error instanceof AxiosError && error.response) {
-        const message =
-          typeof error.response.data === 'string'
-            ? error.response.data
-            : (error.response.data?.message ?? 'ComexStat API request failed.');
-
-        throw new HttpException(
-          message,
-          error.response.status ?? HttpStatus.BAD_GATEWAY,
-          {
-            cause: error,
-          },
-        );
-      }
-
-      throw new ServiceUnavailableException('Unable to reach ComexStat API.');
-    }
   }
 }

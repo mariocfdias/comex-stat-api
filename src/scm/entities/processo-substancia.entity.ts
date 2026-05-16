@@ -1,27 +1,17 @@
-import { Entity, PrimaryColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
-import { Processo } from './processo.entity';
-import { Substancia } from './substancia.entity';
+import { Entity, PrimaryColumn, Column, Index } from 'typeorm';
 
-@Entity('processo_substancia')
+@Entity('scm_processo_substancia')
+@Index(['IDSubstancia'])
 export class ProcessoSubstancia {
-  @PrimaryColumn({ type: 'varchar', length: 50 })
+  @PrimaryColumn({ name: 'ds_processo', type: 'varchar', length: 50 })
   DSProcesso: string;
 
-  @PrimaryColumn({ type: 'integer' })
+  @PrimaryColumn({ name: 'id_substancia', type: 'integer' })
   IDSubstancia: number;
 
-  @Column({ type: 'integer', nullable: true })
+  @Column({ name: 'id_tipo_uso_substancia', type: 'integer', nullable: true })
   IDTipoUsoSubstancia: number;
 
-  @Column({ type: 'integer', nullable: true })
+  @Column({ name: 'id_motivo_encerramento_substancia', type: 'integer', nullable: true })
   IDMotivoEncerramentoSubstancia: number;
-
-  // Relationships
-  @ManyToOne(() => Processo, processo => processo.processoSubstancias, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'DSProcesso' })
-  processo?: Processo;
-
-  @ManyToOne(() => Substancia, substancia => substancia.processoSubstancias)
-  @JoinColumn({ name: 'IDSubstancia' })
-  substancia?: Substancia;
 }

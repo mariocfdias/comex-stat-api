@@ -1,11 +1,9 @@
 import { CacheModule } from '@nestjs/cache-manager';
 import { Logger, Module } from '@nestjs/common';
-import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ComexstatModule } from './comexstat/comexstat.module';
-import { KeepaliveScheduler } from './keepalive.scheduler';
 import { RdeModule } from './rde/rde.module';
 import { SigmineModule } from './sigmine/sigmine.module';
 import { ScmModule } from './scm/scm.module';
@@ -18,6 +16,16 @@ import {
   ProcessoMunicipio,
   ProcessoSubstancia,
 } from './scm/entities';
+import { ComexstatSummary } from './comexstat/entities/comexstat-summary.entity';
+import { ComexstatSummaryHistory } from './comexstat/entities/comexstat-summary-history.entity';
+import { ComexstatTimeseries } from './comexstat/entities/comexstat-timeseries.entity';
+import { ComexstatPartner } from './comexstat/entities/comexstat-partner.entity';
+import { ComexstatProduct } from './comexstat/entities/comexstat-product.entity';
+import { ComexstatNational } from './comexstat/entities/comexstat-national.entity';
+import { ComexstatStatesRanking } from './comexstat/entities/comexstat-states-ranking.entity';
+import { RdeTodosRegistros } from './rde/entities/rde-todos-registros.entity';
+import { RdeRegistrosIed } from './rde/entities/rde-registros-ied.entity';
+import { SigmineLayerEntity } from './sigmine/entities/sigmine-layer.entity';
 
 const DAY_IN_SECONDS = 60 * 60 * 24;
 
@@ -34,15 +42,8 @@ const DAY_IN_SECONDS = 60 * 60 * 24;
             const { default: redisStore } = await import(
               'cache-manager-redis-yet'
             );
-            const store = await redisStore({
-              url: redisUrl,
-              ttl,
-            });
-
-            return {
-              store,
-              ttl,
-            };
+            const store = await redisStore({ url: redisUrl, ttl });
+            return { store, ttl };
           } catch (error) {
             const logger = new Logger('AppModule');
             logger.warn(
@@ -54,20 +55,22 @@ const DAY_IN_SECONDS = 60 * 60 * 24;
         return { ttl };
       },
     }),
-    ScheduleModule.forRoot(),
     TypeOrmModule.forRoot({
-      type: 'sqlite',
-      database: 'data/scm.db',
+      type: 'postgres',
+      url: process.env.DATABASE_URL ?? 'postgresql://warehouse:warehouse@localhost:5432/warehouse',
       entities: [
-        Processo,
-        FaseProcesso,
-        TipoRequerimento,
-        Municipio,
-        Substancia,
-        ProcessoMunicipio,
-        ProcessoSubstancia,
+        // SCM
+        Processo, FaseProcesso, TipoRequerimento, Municipio,
+        Substancia, ProcessoMunicipio, ProcessoSubstancia,
+        // Comexstat
+        ComexstatSummary, ComexstatSummaryHistory, ComexstatTimeseries,
+        ComexstatPartner, ComexstatProduct, ComexstatNational, ComexstatStatesRanking,
+        // RDE
+        RdeTodosRegistros, RdeRegistrosIed,
+        // Sigmine
+        SigmineLayerEntity,
       ],
-      synchronize: true,
+      synchronize: false,
       logging: ['error'],
     }),
     ComexstatModule,
@@ -76,6 +79,6 @@ const DAY_IN_SECONDS = 60 * 60 * 24;
     ScmModule,
   ],
   controllers: [AppController],
-  providers: [AppService, KeepaliveScheduler],
+  providers: [AppService],
 })
 export class AppModule {}

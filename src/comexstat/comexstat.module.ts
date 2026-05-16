@@ -1,29 +1,29 @@
 import { Module } from '@nestjs/common';
-import axios from 'axios';
-import { Agent } from 'node:https';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { ComexstatController } from './comexstat.controller';
-import { ComexstatService, COMEXSTAT_HTTP_CLIENT } from './comexstat.service';
+import { ComexstatService } from './comexstat.service';
+import { ComexstatSummary } from './entities/comexstat-summary.entity';
+import { ComexstatSummaryHistory } from './entities/comexstat-summary-history.entity';
+import { ComexstatTimeseries } from './entities/comexstat-timeseries.entity';
+import { ComexstatPartner } from './entities/comexstat-partner.entity';
+import { ComexstatProduct } from './entities/comexstat-product.entity';
+import { ComexstatNational } from './entities/comexstat-national.entity';
+import { ComexstatStatesRanking } from './entities/comexstat-states-ranking.entity';
 
 @Module({
-  controllers: [ComexstatController],
-  providers: [
-    {
-      provide: COMEXSTAT_HTTP_CLIENT,
-      useFactory: () =>
-        axios.create({
-          baseURL: 'https://api-comexstat.mdic.gov.br',
-          timeout: 60_000,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          httpsAgent: new Agent({
-            rejectUnauthorized:
-              process.env.COMEXSTAT_ALLOW_INSECURE === 'strict',
-          }),
-        }),
-    },
-    ComexstatService,
+  imports: [
+    TypeOrmModule.forFeature([
+      ComexstatSummary,
+      ComexstatSummaryHistory,
+      ComexstatTimeseries,
+      ComexstatPartner,
+      ComexstatProduct,
+      ComexstatNational,
+      ComexstatStatesRanking,
+    ]),
   ],
+  controllers: [ComexstatController],
+  providers: [ComexstatService],
   exports: [ComexstatService],
 })
 export class ComexstatModule {}

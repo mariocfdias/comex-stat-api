@@ -1,10 +1,12 @@
 import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { SigmineController } from './sigmine.controller';
 import { SigmineService } from './sigmine.service';
-import { GeographicFilterService } from './services/geographic-filter.service';
+import { SigmineLayerEntity } from './entities/sigmine-layer.entity';
 
 @Module({
+  imports: [TypeOrmModule.forFeature([SigmineLayerEntity])],
   controllers: [SigmineController],
-  providers: [SigmineService, GeographicFilterService],
+  providers: [SigmineService],
 })
 export class SigmineModule {}
