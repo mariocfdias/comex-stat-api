@@ -1,0 +1,34 @@
+name: comexstat_platform
+version: "1.0.0"
+config-version: 2
+
+profile: comexstat
+
+model-paths: ["models"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+# Configuração de materialização por camada
+models:
+  comexstat_platform:
+    staging:
+      +materialized: view
+      +schema: staging
+    gold:
+      +materialized: table
+      +schema: gold
+
+# Variáveis globais
+vars:
+  ceara_state_id: 23
+  ceara_uf: "CE"
+  # Delay da API ComexStat: dados com ~2 meses de defasagem
+  comexstat_delay_months: 2
+  # Top N padrão para parceiros e produtos
+  default_top_n: 10

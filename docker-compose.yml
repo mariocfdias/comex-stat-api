@@ -1,0 +1,228 @@
+version: "3.9"
+
+# =============================================================================
+# comex-stat — Plataforma de Dados
+# =============================================================================
+# Serviços da nova plataforma (migração de NestJS → FastAPI + Airflow + dbt).
+# O NestJS original NÃO está aqui — continua rodando separadamente.
+#
+# Para subir apenas o banco e o MinIO (desenvolvimento inicial):
+#   docker-compose up -d postgres minio
+#
+# Para subir tudo:
+#   docker-compose up -d
+# =============================================================================
+
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.9-python3.11
+  environment:
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__FERNET_KEY: ""
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY:-comexstat-secret-key}
+    AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "True"
+    # Conexões com a plataforma (acessíveis nas DAGs via Variable/Connection)
+    MINIO_ENDPOINT: minio:9000
+    MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+    MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: "5432"
+    POSTGRES_DB: ${POSTGRES_DB:-comexstat_platform}
+    POSTGRES_USER: ${POSTGRES_USER:-postgres}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_pass}
+  volumes:
+    - ./data-platform/airflow/dags:/opt/airflow/dags
+    - ./data-platform/airflow/plugins:/opt/airflow/plugins
+    - airflow_logs:/opt/airflow/logs
+  networks:
+    - platform-network
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 16 + PostGIS
+  # Data Warehouse: schemas raw / staging / gold
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: comexstat-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-comexstat_platform}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_pass}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./data-platform/scripts/init_airflow_db.sh:/docker-entrypoint-initdb.d/00_init_airflow_db.sh:ro
+      - ./data-platform/scripts/init_postgres.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-comexstat_platform}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - platform-network
+
+  # ---------------------------------------------------------------------------
+  # MinIO — Object Storage (S3-compatible)
+  # Data Lake: buckets raw-data / staging-data / backups
+  # Console: http://localhost:9001 (minioadmin / minioadmin123)
+  # ---------------------------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: comexstat-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - platform-network
+
+  # ---------------------------------------------------------------------------
+  # MinIO Init — cria buckets e estrutura de prefixos
+  # Executa uma vez e termina
+  # ---------------------------------------------------------------------------
+  minio-init:
+    image: minio/mc:latest
+    container_name: comexstat-minio-init
+    restart: on-failure
+    environment:
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+    volumes:
+      - ./data-platform/scripts/init_minio.sh:/init_minio.sh:ro
+    entrypoint: ["/bin/sh", "/init_minio.sh"]
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - platform-network
+
+  # ---------------------------------------------------------------------------
+  # Airflow Init — inicializa o banco do Airflow e cria o admin
+  # Executa uma vez e termina
+  # ---------------------------------------------------------------------------
+  airflow-init:
+    <<: *airflow-common
+    container_name: comexstat-airflow-init
+    restart: on-failure
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db init
+        airflow users create \
+          --username "${AIRFLOW_ADMIN_USER:-admin}" \
+          --password "${AIRFLOW_ADMIN_PASSWORD:-admin}" \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email "${AIRFLOW_ADMIN_EMAIL:-admin@example.com}" || true
+        echo "Airflow inicializado com sucesso."
+    environment:
+      <<: *airflow-common
+      _AIRFLOW_DB_MIGRATE: "true"
+
+  # ---------------------------------------------------------------------------
+  # Airflow Webserver — UI em http://localhost:8080
+  # Login: admin / admin
+  # ---------------------------------------------------------------------------
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: comexstat-airflow-webserver
+    restart: unless-stopped
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Airflow Scheduler — agendamento das DAGs
+  # ---------------------------------------------------------------------------
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: comexstat-airflow-scheduler
+    restart: unless-stopped
+    command: scheduler
+    healthcheck:
+      test: ["CMD-SHELL", "airflow jobs check --job-type SchedulerJob --hostname \"$(hostname)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # FastAPI — nova camada de API (placeholder — implementação na Fase 3)
+  # Docs: http://localhost:8000/docs
+  # ---------------------------------------------------------------------------
+  fastapi:
+    build:
+      context: ./data-platform/fastapi
+      dockerfile: Dockerfile
+    container_name: comexstat-fastapi
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_pass}@postgres:5432/${POSTGRES_DB:-comexstat_platform}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ./data-platform/fastapi:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - platform-network
+
+# =============================================================================
+# Volumes nomeados (persistência entre reinicializações)
+# =============================================================================
+volumes:
+  postgres_data:
+    driver: local
+  minio_data:
+    driver: local
+  airflow_logs:
+    driver: local
+
+# =============================================================================
+# Network compartilhada entre todos os serviços da plataforma
+# =============================================================================
+networks:
+  platform-network:
+    driver: bridge
+    name: comexstat-platform
