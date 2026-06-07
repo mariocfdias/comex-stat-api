@@ -1,5 +1,3 @@
-version: "3.9"
-
 # =============================================================================
 # comex-stat — Plataforma de Dados
 # =============================================================================
@@ -13,24 +11,26 @@ version: "3.9"
 #   docker-compose up -d
 # =============================================================================
 
+x-airflow-env: &airflow-env
+  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+  AIRFLOW__CORE__EXECUTOR: LocalExecutor
+  AIRFLOW__CORE__FERNET_KEY: ""
+  AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY:-comexstat-secret-key}
+  AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+  AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "True"
+  MINIO_ENDPOINT: minio:9000
+  MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+  MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: ${POSTGRES_DB:-comexstat_platform}
+  POSTGRES_USER: ${POSTGRES_USER:-postgres}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_pass}
+
 x-airflow-common: &airflow-common
   image: apache/airflow:2.9-python3.11
   environment:
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
-    AIRFLOW__CORE__EXECUTOR: LocalExecutor
-    AIRFLOW__CORE__FERNET_KEY: ""
-    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY:-comexstat-secret-key}
-    AIRFLOW__CORE__LOAD_EXAMPLES: "False"
-    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "True"
-    # Conexões com a plataforma (acessíveis nas DAGs via Variable/Connection)
-    MINIO_ENDPOINT: minio:9000
-    MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
-    MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
-    POSTGRES_HOST: postgres
-    POSTGRES_PORT: "5432"
-    POSTGRES_DB: ${POSTGRES_DB:-comexstat_platform}
-    POSTGRES_USER: ${POSTGRES_USER:-postgres}
-    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_pass}
+    <<: *airflow-env
   volumes:
     - ./data-platform/airflow/dags:/opt/airflow/dags
     - ./data-platform/airflow/plugins:/opt/airflow/plugins
@@ -139,7 +139,7 @@ services:
           --email "${AIRFLOW_ADMIN_EMAIL:-admin@example.com}" || true
         echo "Airflow inicializado com sucesso."
     environment:
-      <<: *airflow-common
+      <<: *airflow-env
       _AIRFLOW_DB_MIGRATE: "true"
 
   # ---------------------------------------------------------------------------

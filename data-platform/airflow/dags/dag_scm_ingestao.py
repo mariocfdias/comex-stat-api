@@ -1,33 +1,60 @@
 """
 dag_scm_ingestao.py
 ====================
-Substitui: ScmSchedulerService (@Cron EVERY_DAY_AT_2AM) + ScmCsvService.downloadAndExtractData()
+Substitui: ScmSchedulerService + ScmCsvService + ScmRepositoryService
 
-Fluxo original (NestJS):
-  ScmSchedulerService → ScmCsvService.downloadAndExtractData()
-    → download ZIP da ANM (~centenas de MB, timeout 10min, 3 retentativas)
-    → adm-zip extract para data/scm/extracted/
-    → parse 7 arquivos TXT (separador ;) em entidades TypeORM
-    → filterDataForCeara() — cascata: municipios CE → processo-municipio → processos
-    → ScmRepositoryService.insertInBatches() → SQLite (data/scm.db)
-
-Fluxo novo (Airflow + PostgreSQL):
-  check_freshness → download_zip → extract_and_parse → filter_ceara
-    → load_reference_tables → load_processos → compute_analytics → load_postgresql
+Pipeline diário que baixa microdados SCM da ANM, filtra para o Ceará
+e carrega no PostgreSQL (schema raw → tabelas gold via dbt).
 """
 
 from __future__ import annotations
 
+import io
 import os
+import zipfile
 from datetime import datetime, timedelta
 
+import pandas as pd
+import requests
+import urllib3
 from airflow.decorators import dag, task
-from airflow.utils.dates import days_ago
+from airflow.exceptions import AirflowSkipException
+from dateutil.relativedelta import relativedelta
+from utils import (
+    df_to_postgres,
+    download_bytes,
+    execute_sql,
+    get_object_age_hours,
+    get_s3_client,
+    query_to_df,
+    upload_json,
+    upload_parquet,
+)
 
-ANM_URL = "https://app.anm.gov.br/dadosabertos/SCM/microdados/microdados-scm.zip"
-FRESHNESS_HOURS = 48  # reutiliza arquivo com menos de 48h (mesmo que ScmCsvService)
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+ANM_ZIP_URL = "https://app.anm.gov.br/dadosabertos/SCM/microdados/microdados-scm.zip"
 CEARA_UF = "CE"
-CHUNK_SIZE = 500  # registros por batch de INSERT
+FRESHNESS_HOURS = 48
+CHUNK_SIZE = 500  # replica ScmRepositoryService.chunkSize
+
+RAW_BUCKET = "raw-data"
+STAGING_BUCKET = "staging-data"
+
+# Arquivos dentro do ZIP e suas colunas
+SCM_FILES = {
+    "Processo.txt": [
+        "DSProcesso", "NRProcesso", "NRAnoProcesso", "BTAtivo", "NRNUP",
+        "IDTipoRequerimento", "IDFaseProcesso", "IDUnidadeAdministrativaRegional",
+        "IDUnidadeProtocolizadora", "DTProtocolo", "DTPrioridade", "QTAreaHA",
+    ],
+    "FaseProcesso.txt": ["IDFaseProcesso", "DSFaseProcesso"],
+    "TipoRequerimento.txt": ["IDTipoRequerimento", "DSTipoRequerimento"],
+    "Municipio.txt": ["IDMunicipio", "NMMunicipio", "SGUF"],
+    "Substancia.txt": ["IDSubstancia", "NMSubstancia"],
+    "ProcessoMunicipio.txt": ["DSProcesso", "IDMunicipio"],
+    "ProcessoSubstancia.txt": ["DSProcesso", "IDSubstancia", "IDTipoUsoSubstancia", "IDMotivoEncerramentoSubstancia"],
+}
 
 DEFAULT_ARGS = {
     "owner": "data-platform",
@@ -41,202 +68,394 @@ DEFAULT_ARGS = {
 
 @dag(
     dag_id="dag_scm_ingestao",
-    description="Ingere microdados SCM da ANM e carrega no PostgreSQL (substitui ScmSchedulerService)",
-    schedule_interval="0 2 * * *",  # diariamente às 2h BRT (mesmo horário do NestJS)
-    start_date=days_ago(1),
+    description="Ingestão diária de microdados SCM/ANM para o Ceará → PostgreSQL",
+    schedule_interval="0 2 * * *",
+    start_date=datetime(2024, 1, 1),
     catchup=False,
     default_args=DEFAULT_ARGS,
     tags=["scm", "anm", "diario", "ingestao"],
-    doc_md=__doc__,
 )
 def dag_scm_ingestao():
 
     @task
     def check_freshness() -> bool:
         """
-        Verifica se o arquivo SCM baixado tem menos de 48h.
-        Replica: ScmCsvService — lógica de freshness check antes do download.
-
-        TODO: Verificar timestamp do objeto no MinIO (bucket raw-data/scm/).
-        Se fresher que FRESHNESS_HOURS, retorna True (skip download).
-        Caso contrário, retorna False (precisa baixar).
+        Retorna True se o ZIP tem menos de 48h (dado ainda fresco).
+        Replica: ScmCsvService — freshness check antes do download.
         """
-        # TODO: implementar verificação via MinIO client
-        # import boto3
-        # s3 = boto3.client('s3', endpoint_url=f"http://{os.environ['MINIO_ENDPOINT']}", ...)
-        # try:
-        #     obj = s3.head_object(Bucket='raw-data', Key='scm/microdados-scm.zip')
-        #     age = datetime.utcnow() - obj['LastModified'].replace(tzinfo=None)
-        #     return age.total_seconds() < FRESHNESS_HOURS * 3600
-        # except s3.exceptions.NoSuchKey:
-        #     return False
-        return False  # placeholder: sempre baixa
+        key = "scm/microdados-scm.zip"
+        age = get_object_age_hours(RAW_BUCKET, key)
+        if age is not None and age < FRESHNESS_HOURS:
+            print(f"Dado SCM fresco ({age:.1f}h < {FRESHNESS_HOURS}h). Pulando download.")
+            return True
+        return False
 
     @task
     def download_zip(is_fresh: bool) -> str:
         """
         Baixa microdados-scm.zip da ANM para o MinIO (camada bronze/raw-data).
-        Replica: ScmCsvService.downloadAndExtractData() — HTTP GET com timeout 600s e retry.
-
-        Configurações replicadas do NestJS:
-        - rejectUnauthorized: False (certificado ANM inválido)
-        - Headers User-Agent simulando navegador
-        - Timeout: 600s (10min)
-        - 3 retentativas com exponential backoff
-
-        TODO: implementar download em chunks para evitar OOM.
-        Retorna: caminho do objeto no MinIO.
+        Replica: ScmCsvService.downloadAndExtractData()
+          - verify=False (rejectUnauthorized: false no NestJS)
+          - timeout 600s (600_000 ms no NestJS)
+          - User-Agent simulando navegador
+          - 3 retentativas com backoff (tratadas pelo Airflow)
         """
+        run_date = datetime.utcnow()
+        key = (
+            f"scm/ano={run_date.year}/mes={run_date.month:02d}"
+            f"/dia={run_date.day:02d}/microdados-scm.zip"
+        )
+        latest_key = "scm/microdados-scm.zip"
+
         if is_fresh:
-            print("Arquivo SCM ainda fresco (<48h). Pulando download.")
-            return "raw-data/scm/microdados-scm.zip"  # usa arquivo existente
+            print(f"Dado fresco — reutilizando {latest_key}")
+            return latest_key
 
-        # TODO: implementar download
-        # import requests, boto3
-        # session = requests.Session()
-        # session.verify = False  # rejectUnauthorized: False
-        # session.headers.update({'User-Agent': 'Mozilla/5.0 ...'})
-        # response = session.get(ANM_URL, stream=True, timeout=600)
-        # response.raise_for_status()
-        # Fazer upload para MinIO em chunks
-        minio_key = f"scm/ano={datetime.utcnow().year}/mes={datetime.utcnow().month:02d}/dia={datetime.utcnow().day:02d}/microdados-scm.zip"
-        print(f"TODO: download de {ANM_URL} → MinIO raw-data/{minio_key}")
-        return f"raw-data/{minio_key}"
+        print(f"Baixando {ANM_ZIP_URL} ...")
+        resp = requests.get(
+            ANM_ZIP_URL,
+            verify=False,
+            timeout=600,
+            stream=True,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+                "Accept": "application/zip, */*",
+                "Accept-Encoding": "gzip, deflate, br",
+            },
+        )
+        resp.raise_for_status()
+
+        content = resp.content
+        print(f"Download concluído: {len(content) / 1024 / 1024:.1f} MB")
+
+        s3 = get_s3_client()
+        for upload_key in (key, latest_key):
+            s3.put_object(Bucket=RAW_BUCKET, Key=upload_key, Body=content)
+            print(f"Salvo em {RAW_BUCKET}/{upload_key}")
+
+        return latest_key
 
     @task
-    def extract_and_parse(minio_zip_key: str) -> dict:
+    def extract_and_parse(zip_key: str) -> str:
         """
-        Extrai o ZIP e parseia os 7 arquivos TXT (separador ;) para DataFrames.
+        Extrai o ZIP e parseia os 7 arquivos TXT (separador ;).
         Replica: ScmCsvService — parsing linha a linha com split(';').
-
-        Arquivos no ZIP (diretório microdados-scm/):
-        - Processo.txt           → 12 colunas (DSProcesso PK, IDFaseProcesso FK, ...)
-        - FaseProcesso.txt       → 2 colunas (IDFaseProcesso, DSFaseProcesso)
-        - TipoRequerimento.txt   → 2 colunas (IDTipoRequerimento, DSTipoRequerimento)
-        - Municipio.txt          → 3 colunas (IDMunicipio, NMMunicipio, SGUF)
-        - Substancia.txt         → 2 colunas (IDSubstancia, NMSubstancia)
-        - ProcessoMunicipio.txt  → 2 colunas (DSProcesso FK, IDMunicipio FK)
-        - ProcessoSubstancia.txt → 4 colunas (DSProcesso FK, IDSubstancia FK, ...)
-
-        TODO: baixar ZIP do MinIO, extrair em memória com zipfile, parsear com pandas.
-        Retorna: dicionário com caminho dos Parquets salvos no MinIO staging-data/scm/
+        Salva cada arquivo como Parquet no MinIO staging-data/scm/raw/.
         """
-        # TODO: implementar
-        # import zipfile, io, pandas as pd, boto3
-        # s3 = boto3.client(...)
-        # zip_obj = s3.get_object(Bucket='raw-data', Key=minio_zip_key.replace('raw-data/', ''))
-        # with zipfile.ZipFile(io.BytesIO(zip_obj['Body'].read())) as z:
-        #     for filename in z.namelist():
-        #         df = pd.read_csv(z.open(filename), sep=';', encoding='latin-1', dtype=str)
-        #         s3.put_object(Bucket='staging-data', Key=f'scm/{filename}.parquet', Body=df.to_parquet())
-        print(f"TODO: extrair e parsear {minio_zip_key}")
-        return {"status": "TODO", "zip_key": minio_zip_key}
+        run_date = datetime.utcnow()
+        prefix = f"scm/raw/ano={run_date.year}/mes={run_date.month:02d}/"
+
+        zip_bytes = download_bytes(RAW_BUCKET, zip_key)
+        print(f"ZIP carregado: {len(zip_bytes) / 1024 / 1024:.1f} MB")
+
+        saved_keys = {}
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            for filename, columns in SCM_FILES.items():
+                # Encontra o arquivo dentro do ZIP (pode estar em subdiretório)
+                zip_path = next(
+                    (n for n in zf.namelist() if n.endswith(filename)), None
+                )
+                if zip_path is None:
+                    print(f"AVISO: {filename} não encontrado no ZIP")
+                    continue
+
+                with zf.open(zip_path) as f:
+                    # Replica: encoding latin-1 típico dos arquivos da ANM
+                    df = pd.read_csv(
+                        f,
+                        sep=";",
+                        encoding="latin-1",
+                        dtype=str,
+                        on_bad_lines="skip",
+                        header=0,
+                    )
+
+                # Normalizar nomes de colunas
+                df.columns = [c.strip() for c in df.columns]
+
+                # Ajustar se o arquivo não tem header (usar nomes definidos)
+                if list(df.columns) != columns and len(df.columns) == len(columns):
+                    df.columns = columns
+                elif list(df.columns) != columns:
+                    # Reconstruir sem header
+                    with zf.open(zip_path) as f:
+                        df = pd.read_csv(
+                            f,
+                            sep=";",
+                            encoding="latin-1",
+                            dtype=str,
+                            on_bad_lines="skip",
+                            header=None,
+                            names=columns,
+                        )
+
+                # Limpar espaços dos valores de string
+                str_cols = df.select_dtypes(include="object").columns
+                df[str_cols] = df[str_cols].apply(lambda col: col.str.strip())
+
+                parquet_key = f"{prefix}{filename.replace('.txt', '.parquet')}"
+                upload_parquet(STAGING_BUCKET, parquet_key, df)
+                saved_keys[filename] = parquet_key
+                print(f"  {filename}: {len(df):,} linhas → {parquet_key}")
+
+        upload_json(STAGING_BUCKET, f"{prefix}manifest.json", {
+            "files": saved_keys,
+            "extracted_at": datetime.utcnow().isoformat(),
+            "zip_key": zip_key,
+        })
+        return prefix
 
     @task
-    def filter_ceara(parsed_data: dict) -> dict:
+    def filter_ceara(prefix: str) -> str:
         """
         Filtra dados para o Ceará em cascata.
         Replica EXATAMENTE: ScmCsvService.filterDataForCeara()
 
-        Lógica de filtragem (3 passos, mesma ordem do NestJS):
-        1. Filtra municipios com SGUF = 'CE'
-        2. Filtra ProcessoMunicipio onde IDMunicipio ∈ municipios_CE
-        3. Identifica DSProcesso dos processos vinculados ao CE
-        4. Filtra Processo onde DSProcesso ∈ processos_CE
-        5. Filtra ProcessoSubstancia onde DSProcesso ∈ processos_CE
-
-        TODO: carregar Parquets do staging, aplicar filtros, salvar resultado filtrado.
+        Passos:
+        1. Filtrar Municipio onde SGUF = 'CE'
+        2. Filtrar ProcessoMunicipio onde IDMunicipio ∈ ids_ce
+        3. Identificar DSProcesso vinculados ao CE
+        4. Filtrar Processo onde DSProcesso ∈ processos_ce
+        5. Filtrar ProcessoSubstancia onde DSProcesso ∈ processos_ce
         """
-        # TODO: implementar com pandas
-        # municipios_ce = municipios_df[municipios_df['SGUF'] == CEARA_UF]
-        # municipio_ids_ce = set(municipios_ce['IDMunicipio'])
-        # pm_ce = processo_municipio_df[processo_municipio_df['IDMunicipio'].isin(municipio_ids_ce)]
-        # processos_ce_ids = set(pm_ce['DSProcesso'])
-        # processos_ce = processo_df[processo_df['DSProcesso'].isin(processos_ce_ids)]
-        print(f"TODO: filtrar para Ceará")
-        return {"status": "TODO", "upstream": parsed_data}
+        run_date = datetime.utcnow()
+        out_prefix = f"scm/ceara/ano={run_date.year}/mes={run_date.month:02d}/"
+
+        def load(filename: str) -> pd.DataFrame:
+            key = f"{prefix}{filename.replace('.txt', '.parquet')}"
+            return download_parquet(STAGING_BUCKET, key)
+
+        # 1. Municípios do Ceará
+        municipios = load("Municipio.txt")
+        municipios_ce = municipios[municipios["SGUF"] == CEARA_UF].copy()
+        ids_municipios_ce = set(municipios_ce["IDMunicipio"].dropna().astype(str))
+        print(f"Municípios CE: {len(municipios_ce):,}")
+
+        # 2. Relações processo-município no CE
+        proc_mun = load("ProcessoMunicipio.txt")
+        proc_mun_ce = proc_mun[proc_mun["IDMunicipio"].astype(str).isin(ids_municipios_ce)]
+        ids_processos_ce = set(proc_mun_ce["DSProcesso"].dropna().astype(str))
+        print(f"Processos vinculados ao CE: {len(ids_processos_ce):,}")
+
+        # 3. Processos do CE
+        processos = load("Processo.txt")
+        processos_ce = processos[processos["DSProcesso"].astype(str).isin(ids_processos_ce)].copy()
+        processos_ce = processos_ce.drop_duplicates(subset=["DSProcesso"])
+        print(f"Processos CE: {len(processos_ce):,}")
+
+        # 4. Substâncias dos processos CE
+        proc_sub = load("ProcessoSubstancia.txt")
+        proc_sub_ce = proc_sub[proc_sub["DSProcesso"].astype(str).isin(ids_processos_ce)]
+        print(f"Relações Processo-Substância CE: {len(proc_sub_ce):,}")
+
+        # Tabelas de referência (mantidas integrais — pequenas, sem filtro)
+        fases = load("FaseProcesso.txt")
+        tipos = load("TipoRequerimento.txt")
+        substancias = load("Substancia.txt")
+
+        # Salvar tudo filtrado
+        filtered = {
+            "Processo": processos_ce,
+            "ProcessoMunicipio": proc_mun_ce,
+            "ProcessoSubstancia": proc_sub_ce,
+            "Municipio": municipios_ce,
+            "FaseProcesso": fases,
+            "TipoRequerimento": tipos,
+            "Substancia": substancias,
+        }
+        for name, df in filtered.items():
+            upload_parquet(STAGING_BUCKET, f"{out_prefix}{name}.parquet", df)
+
+        upload_json(STAGING_BUCKET, f"{out_prefix}manifest.json", {
+            "filtered_at": datetime.utcnow().isoformat(),
+            "counts": {k: len(v) for k, v in filtered.items()},
+        })
+        print(f"Filtragem concluída → {out_prefix}")
+        return out_prefix
 
     @task
-    def load_reference_tables(filtered_data: dict) -> str:
+    def load_reference_tables(ceara_prefix: str) -> str:
         """
-        Carrega tabelas de referência (domínio) no PostgreSQL schema raw.
-        Tabelas: fase_processo, tipo_requerimento, municipio, substancia
+        Carrega tabelas de referência no PostgreSQL schema raw.
+        Tabelas pequenas: REPLACE completo a cada execução.
+        """
+        tables = {
+            "scm_fase_processo": "FaseProcesso.parquet",
+            "scm_tipo_requerimento": "TipoRequerimento.parquet",
+            "scm_municipio": "Municipio.parquet",
+            "scm_substancia": "Substancia.parquet",
+        }
 
-        TODO: usar psycopg2/sqlalchemy para COPY ou INSERT em batch.
-        Estratégia: TRUNCATE + INSERT (tabelas pequenas, <10k linhas).
-        """
-        # TODO: implementar
-        # engine = create_engine(os.environ['DATABASE_URL_DBT'])
-        # for table_name, df in reference_dfs.items():
-        #     df.to_sql(table_name, engine, schema='raw', if_exists='replace', index=False)
-        print("TODO: carregar tabelas de referência no PostgreSQL")
-        return "raw.scm_referencia"
+        for table_name, parquet_file in tables.items():
+            df = download_parquet(STAGING_BUCKET, f"{ceara_prefix}{parquet_file}")
+
+            # Converter tipos numéricos
+            for col in df.columns:
+                if col.startswith("ID"):
+                    df[col] = pd.to_numeric(df[col], errors="coerce")
+
+            rows = df_to_postgres(df, table_name, schema="raw", if_exists="replace")
+            print(f"  raw.{table_name}: {rows:,} linhas")
+
+        return "ok"
 
     @task
-    def load_processos(filtered_data: dict, ref_status: str) -> str:
+    def load_processos(ceara_prefix: str, ref_status: str) -> str:
         """
-        Carrega processos e relações N:N no PostgreSQL schema raw.
-        Tabelas: scm_processo, scm_processo_municipio, scm_processo_substancia
-
-        Estratégia: chunks de CHUNK_SIZE registros para evitar OOM.
-        Replica: ScmRepositoryService.insertInBatches()
-
-        TODO: implementar INSERT em lote com chunk_size=500.
+        Carrega processos e relações N:N em chunks de CHUNK_SIZE.
+        Replica: ScmRepositoryService.insertInBatches() com chunkSize=500.
         """
-        # TODO: implementar
-        # for chunk in pd.read_parquet(...).pipe(chunked, CHUNK_SIZE):
-        #     chunk.to_sql('scm_processo', engine, schema='raw', if_exists='append', index=False)
-        print(f"TODO: carregar processos em chunks de {CHUNK_SIZE}")
-        return "raw.scm_processo"
+        # Processos principais
+        processos = download_parquet(STAGING_BUCKET, f"{ceara_prefix}Processo.parquet")
+
+        # Converter tipos
+        int_cols = ["IDTipoRequerimento", "IDFaseProcesso",
+                    "IDUnidadeAdministrativaRegional", "IDUnidadeProtocolizadora"]
+        for col in int_cols:
+            if col in processos.columns:
+                processos[col] = pd.to_numeric(processos[col], errors="coerce")
+
+        # TRUNCATE antes de inserir (dados completos a cada execução)
+        execute_sql("TRUNCATE TABLE raw.scm_processo CASCADE")
+        total = df_to_postgres(
+            processos, "scm_processo", schema="raw",
+            if_exists="append", chunk_size=CHUNK_SIZE,
+        )
+        print(f"raw.scm_processo: {total:,} linhas (chunks de {CHUNK_SIZE})")
+
+        # Relação Processo-Município
+        pm = download_parquet(STAGING_BUCKET, f"{ceara_prefix}ProcessoMunicipio.parquet")
+        pm["IDMunicipio"] = pd.to_numeric(pm["IDMunicipio"], errors="coerce")
+        execute_sql("TRUNCATE TABLE raw.scm_processo_municipio")
+        total_pm = df_to_postgres(pm, "scm_processo_municipio", schema="raw",
+                                  if_exists="append", chunk_size=CHUNK_SIZE)
+        print(f"raw.scm_processo_municipio: {total_pm:,} linhas")
+
+        # Relação Processo-Substância
+        ps = download_parquet(STAGING_BUCKET, f"{ceara_prefix}ProcessoSubstancia.parquet")
+        for col in ["IDSubstancia", "IDTipoUsoSubstancia", "IDMotivoEncerramentoSubstancia"]:
+            if col in ps.columns:
+                ps[col] = pd.to_numeric(ps[col], errors="coerce")
+        execute_sql("TRUNCATE TABLE raw.scm_processo_substancia")
+        total_ps = df_to_postgres(ps, "scm_processo_substancia", schema="raw",
+                                  if_exists="append", chunk_size=CHUNK_SIZE)
+        print(f"raw.scm_processo_substancia: {total_ps:,} linhas")
+
+        return "ok"
 
     @task
-    def compute_analytics(processos_status: str) -> str:
+    def compute_gold(ceara_prefix: str, load_status: str) -> None:
         """
-        Executa modelos dbt para criar as tabelas gold do SCM.
-        Equivalente às queries de analytics do ScmService:
-        - gold_scm_by_fase
-        - gold_scm_by_tipo
-        - gold_scm_by_municipio
-        - gold_scm_by_substancia
-        - gold_scm_by_uf
-
-        TODO: executar 'dbt run --select scm' via subprocess ou DbtOperator.
+        Materializa tabelas gold de analytics do SCM.
+        Replica as queries do ScmRepositoryService (getProcessosByFase, etc.).
+        Executa SQL direto no PostgreSQL (sem dbt neste primeiro momento).
         """
-        # TODO: implementar
-        # import subprocess
-        # result = subprocess.run(
-        #     ['dbt', 'run', '--select', 'scm', '--profiles-dir', '/opt/dbt'],
-        #     capture_output=True, text=True
-        # )
-        # if result.returncode != 0:
-        #     raise Exception(f"dbt run falhou: {result.stderr}")
-        print("TODO: executar dbt run --select scm")
-        return "gold.scm_*"
+        analytics = {
+            "gold_scm_by_fase": """
+                INSERT INTO gold.scm_by_fase (id_fase, descricao_fase, total_processos)
+                SELECT
+                    p."IDFaseProcesso"::int,
+                    f."DSFaseProcesso",
+                    COUNT(p."DSProcesso") AS total_processos
+                FROM raw.scm_processo p
+                LEFT JOIN raw.scm_fase_processo f
+                    ON p."IDFaseProcesso"::int = f."IDFaseProcesso"::int
+                GROUP BY p."IDFaseProcesso", f."DSFaseProcesso"
+                ORDER BY total_processos DESC
+            """,
+            "gold_scm_by_tipo": """
+                INSERT INTO gold.scm_by_tipo (id_tipo, descricao_tipo, total_processos)
+                SELECT
+                    p."IDTipoRequerimento"::int,
+                    t."DSTipoRequerimento",
+                    COUNT(p."DSProcesso") AS total_processos
+                FROM raw.scm_processo p
+                LEFT JOIN raw.scm_tipo_requerimento t
+                    ON p."IDTipoRequerimento"::int = t."IDTipoRequerimento"::int
+                GROUP BY p."IDTipoRequerimento", t."DSTipoRequerimento"
+                ORDER BY total_processos DESC
+            """,
+            "gold_scm_by_municipio": """
+                INSERT INTO gold.scm_by_municipio (id_municipio, nome_municipio, total_processos)
+                SELECT
+                    m."IDMunicipio"::int,
+                    m."NMMunicipio",
+                    COUNT(DISTINCT pm."DSProcesso") AS total_processos
+                FROM raw.scm_municipio m
+                LEFT JOIN raw.scm_processo_municipio pm
+                    ON m."IDMunicipio"::text = pm."IDMunicipio"::text
+                GROUP BY m."IDMunicipio", m."NMMunicipio"
+                ORDER BY total_processos DESC
+            """,
+            "gold_scm_by_substancia": """
+                INSERT INTO gold.scm_by_substancia (id_substancia, nome_substancia, total_processos)
+                SELECT
+                    s."IDSubstancia"::int,
+                    s."NMSubstancia",
+                    COUNT(DISTINCT ps."DSProcesso") AS total_processos
+                FROM raw.scm_substancia s
+                LEFT JOIN raw.scm_processo_substancia ps
+                    ON s."IDSubstancia"::text = ps."IDSubstancia"::text
+                GROUP BY s."IDSubstancia", s."NMSubstancia"
+                ORDER BY total_processos DESC
+            """,
+        }
 
-    @task
-    def load_postgresql(analytics_status: str) -> None:
-        """
-        Valida que todas as tabelas gold foram criadas corretamente.
-        Executa dbt test --select scm para verificar qualidade dos dados.
+        # Criar tabelas gold se não existirem e popular
+        execute_sql("""
+            CREATE TABLE IF NOT EXISTS gold.scm_by_fase (
+                id_fase          INTEGER,
+                descricao_fase   TEXT,
+                total_processos  INTEGER,
+                updated_at       TIMESTAMP DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS gold.scm_by_tipo (
+                id_tipo          INTEGER,
+                descricao_tipo   TEXT,
+                total_processos  INTEGER,
+                updated_at       TIMESTAMP DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS gold.scm_by_municipio (
+                id_municipio     INTEGER,
+                nome_municipio   TEXT,
+                total_processos  INTEGER,
+                updated_at       TIMESTAMP DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS gold.scm_by_substancia (
+                id_substancia    INTEGER,
+                nome_substancia  TEXT,
+                total_processos  INTEGER,
+                updated_at       TIMESTAMP DEFAULT NOW()
+            );
+        """)
 
-        TODO: executar 'dbt test --select scm' e verificar contagens.
-        Comparar contagem de processos com o SQLite original para validação.
-        """
-        # TODO: implementar validação
-        # Comparar: SELECT COUNT(*) FROM gold.gold_scm_processos
-        # com: SELECT COUNT(*) FROM processos (SQLite)
-        print("TODO: validar tabelas gold do SCM")
-        print("TODO: executar dbt test --select scm")
+        for table, sql in analytics.items():
+            gold_table = table.replace("gold_", "")
+            execute_sql(f"TRUNCATE TABLE gold.{gold_table}")
+            execute_sql(sql)
+            result = query_to_df(f'SELECT COUNT(*) AS n FROM gold."{gold_table}"')
+            print(f"  gold.{gold_table}: {result['n'].iloc[0]:,} linhas")
 
-    # Grafo de dependências (replica a lógica sequencial do NestJS)
+        # Registrar execução na tabela de auditoria
+        execute_sql("""
+            INSERT INTO raw.pipeline_runs (dag_id, run_id, finished_at, status)
+            VALUES ('dag_scm_ingestao', %(run_id)s, NOW(), 'success')
+        """, {"run_id": datetime.utcnow().isoformat()})
+
+        print("SCM gold materializado com sucesso.")
+
+    # Grafo de dependências
     fresh = check_freshness()
     zip_key = download_zip(fresh)
-    parsed = extract_and_parse(zip_key)
-    filtered = filter_ceara(parsed)
-    ref_status = load_reference_tables(filtered)
-    proc_status = load_processos(filtered, ref_status)
-    analytics_status = compute_analytics(proc_status)
-    load_postgresql(analytics_status)
+    prefix = extract_and_parse(zip_key)
+    ceara_prefix = filter_ceara(prefix)
+    ref_status = load_reference_tables(ceara_prefix)
+    load_status = load_processos(ceara_prefix, ref_status)
+    compute_gold(ceara_prefix, load_status)
 
 
 dag_scm_ingestao()
