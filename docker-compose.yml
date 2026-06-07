@@ -34,6 +34,7 @@ x-airflow-common: &airflow-common
   volumes:
     - ./data-platform/airflow/dags:/opt/airflow/dags
     - ./data-platform/airflow/plugins:/opt/airflow/plugins
+    - ./static:/opt/airflow/static:ro
     - airflow_logs:/opt/airflow/logs
   networks:
     - platform-network

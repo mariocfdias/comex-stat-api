@@ -1,0 +1,34 @@
+version: 2
+
+models:
+  - name: gold_scm_by_fase
+    description: Contagem e área de processos SCM agrupados por fase
+    columns:
+      - name: fase_id
+        tests: [not_null, unique]
+      - name: total_processos
+        tests: [not_null]
+
+  - name: gold_scm_by_tipo
+    description: Contagem e área de processos SCM agrupados por tipo de requerimento
+    columns:
+      - name: tipo_id
+        tests: [not_null, unique]
+
+  - name: gold_scm_by_municipio
+    description: Contagem e área de processos SCM por município do Ceará
+    columns:
+      - name: municipio_id
+        tests: [not_null, unique]
+
+  - name: gold_scm_by_substancia
+    description: Contagem de processos por substância mineral
+    columns:
+      - name: substancia_id
+        tests: [not_null, unique]
+
+  - name: gold_scm_processos
+    description: Processos SCM completos com todas as dimensões expandidas (tabela principal)
+
+  - name: gold_scm_analytics_resumo
+    description: Resumo executivo dos processos minerais do Ceará

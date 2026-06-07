@@ -1,0 +1,35 @@
+version: 2
+
+sources:
+  - name: raw_rde
+    schema: gold
+    description: Dados RDE carregados pelo dag_rde_ingestao.py
+    tables:
+      - name: gold_rde_todos_registros
+        columns:
+          - name: CodigoRDE
+            tests: [not_null]
+          - name: Ano
+            tests:
+              - not_null
+              - dbt_utils.accepted_range:
+                  min_value: 2011
+          - name: Mes
+            tests:
+              - not_null
+              - accepted_values:
+                  values: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+
+      - name: gold_rde_registros_ied
+        columns:
+          - name: CodigoRDE
+            tests: [not_null]
+          - name: CnpjBaseReceptora
+            tests: [not_null]
+
+models:
+  - name: gold_rde_summary
+    description: Resumo anual dos registros RDE do Ceará
+
+  - name: gold_rde_by_sistema
+    description: Contagem de registros por Sistema (RDE-ROF, RDE-IED, RDE-PORTFOLIO)

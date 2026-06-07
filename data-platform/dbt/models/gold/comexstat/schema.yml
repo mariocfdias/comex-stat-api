@@ -1,0 +1,35 @@
+version: 2
+
+sources:
+  - name: raw_comexstat
+    schema: staging
+    description: Dados silver ComexStat (Parquet → PostgreSQL via dag_comexstat_ingestao)
+    # Nota: os dados vêm do MinIO Parquet, não de tabelas staging SQL
+    # Os modelos gold leem diretamente das tabelas gold criadas pelo DAG
+    tables:
+      - name: gold_comexstat_summary
+        schema: gold
+      - name: gold_comexstat_timeseries
+        schema: gold
+      - name: gold_comexstat_partners
+        schema: gold
+      - name: gold_comexstat_products
+        schema: gold
+      - name: gold_comexstat_national_comparison
+        schema: gold
+      - name: gold_comexstat_states_ranking
+        schema: gold
+
+models:
+  - name: gold_comexstat_summary_enriched
+    description: Summary enriquecido com metadados de data de geração
+
+  - name: gold_comexstat_dashboard
+    description: Visão consolidada para o endpoint /dashboard (summary + top partners + top products)
+
+  - name: gold_comexstat_tests
+    description: Modelo de validação — assertivas que devem ser zero
+
+tests:
+  - name: trade_balance_equals_exports_minus_imports
+    description: trade_balance deve ser exports_fob - imports_fob (tolerância 0.001)
