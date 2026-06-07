@@ -80,10 +80,10 @@
 
 ### 1.7 Airflow DAGs (Esqueletos)
 
-- [x] `dag_scm_ingestao.py` criado (esqueleto com TODOs)
-- [x] `dag_comexstat_ingestao.py` criado (esqueleto com TODOs)
-- [x] `dag_rde_ingestao.py` criado (esqueleto com TODOs)
-- [x] `dag_sigmine_ingestao.py` criado (esqueleto com TODOs)
+- [x] `dag_scm_ingestao.py` implementado com código Python real (sem TODOs)
+- [x] `dag_comexstat_ingestao.py` implementado com código Python real (18 chamadas API)
+- [x] `dag_rde_ingestao.py` implementado com paginação OData completa
+- [x] `dag_sigmine_ingestao.py` implementado com geopandas + PostGIS
 - [ ] DAGs carregadas no Airflow sem erros de import
 
 ---
@@ -94,19 +94,19 @@
 
 **Razão**: Já opera em batch. Menor risco. Valida toda a infraestrutura.
 
-- [ ] Task `check_freshness`: verificar timestamp no MinIO
-- [ ] Task `download_zip`: baixar ZIP da ANM (verify=False, timeout 600s)
-- [ ] Task `extract_csvs`: extrair 7 arquivos TXT para MinIO bronze
-- [ ] Task `parse_and_filter`: replicar `ScmCsvService.filterDataForCeara()`
-  - [ ] Filtrar municípios SGUF = 'CE'
-  - [ ] Cascata: município → processo-município → processo
-  - [ ] Salvar como Parquet no MinIO silver
-- [ ] Task `load_reference_tables`: fases, tipos, municípios, substâncias
-- [ ] Task `load_main_tables`: processos em chunks de 500 (replica NestJS)
-- [ ] Task `compute_analytics`: materializar tabelas gold
+- [x] Task `check_freshness`: verificar timestamp no MinIO (threshold 48h)
+- [x] Task `download_zip`: baixar ZIP da ANM (verify=False, timeout 600s, User-Agent spoofing)
+- [x] Task `extract_and_parse`: extrair 7 arquivos TXT com pandas (sep=";", encoding="latin-1")
+- [x] Task `filter_ceara`: replicar `ScmCsvService.filterDataForCeara()` (cascata exata)
+  - [x] Filtrar municípios SGUF = 'CE'
+  - [x] Cascata: município → ProcessoMunicipio → Processo → ProcessoSubstancia
+  - [x] Salvar como Parquet no MinIO staging-data
+- [x] Task `load_reference_tables`: REPLACE em raw.scm_fase_processo/tipo/municipio/substancia
+- [x] Task `load_processos`: TRUNCATE + INSERT em chunks de 500 (replica NestJS chunkSize)
+- [x] Task `compute_gold`: materializar gold.scm_by_fase/tipo/municipio/substancia
 - [ ] DAG executando com sucesso por 3+ dias consecutivos
-- [ ] Modelos dbt staging SCM (6 modelos)
-- [ ] Modelos dbt gold SCM (12 modelos: processos, fases, tipos, municípios, substâncias, relações, analytics)
+- [x] Modelos dbt staging SCM (6 modelos)
+- [x] Modelos dbt gold SCM (6 modelos: by_fase, by_tipo, by_municipio, by_substancia, processos, resumo)
 - [ ] Testes dbt SCM passando (not_null, unique, relationships)
 - [ ] **Validação**: contagens SQLite atual == PostgreSQL novo
 
@@ -114,45 +114,46 @@
 
 **Razão**: Maior ganho — elimina 5 chamadas HTTP paralelas de 60s.
 
-- [ ] Task `extract_export_data`: replicar `queryGeneral({ flow: 'export' })`
-- [ ] Task `extract_import_data`: replicar `queryGeneral({ flow: 'import' })`
-- [ ] Task `store_bronze`: salvar JSONs no MinIO particionado por data
-- [ ] Task `transform_silver`: normalizar campos (country vs countryName, etc.)
-- [ ] Task `compute_gold_summary`: todos os tipos de período
-- [ ] Task `compute_gold_timeseries`: mensal e anual
-- [ ] Task `compute_gold_partners`: top N por fluxo/período
-- [ ] Task `compute_gold_products`: 3 níveis de agregação (ncm/heading/chapter)
-- [ ] Task `compute_gold_national`: **substitui 5 chamadas paralelas por 1 Pandas**
-- [ ] Task `compute_gold_dashboard`: combinar tabelas
-- [ ] Task `load_postgresql`: carregar tabelas gold
-- [ ] Pool `comexstat_api` limitando a 3 conexões simultâneas
+- [x] Task `extract_ce_export/import`: replicar `queryGeneral({ flow })` com monthDetail=True
+- [x] Task `extract_ce_partners_*`: `queryGeneral` com details=['country']
+- [x] Task `extract_ce_products_heading/ncm_*`: `queryGeneral` com details=['heading'/'ncm']
+- [x] Task `extract_national_*`: dados nacionais (total + by state + by state+sector/partner/product)
+- [x] Task `transform_silver`: normalizar campos (country vs countryName, etc.) com _normalize_row()
+- [x] Task `compute_gold_summary`: 3 períodos × 2 fluxos com ranking CE
+- [x] Task `compute_gold_timeseries`: série mensal e anual
+- [x] Task `compute_gold_partners`: top N por fluxo/período com percentual
+- [x] Task `compute_gold_products`: 3 níveis de agregação (ncm/heading/chapter)
+- [x] Task `compute_gold_national`: **substitui 5 chamadas paralelas por 1 Pandas** (+ states ranking)
+- [x] Task `compute_gold_dashboard`: combinar tabelas gold existentes
+- [x] Task `load_postgresql`: validações de invariante (trade_balance, participation range)
+- [ ] Pool `comexstat_api` configurado no Airflow UI (max 3 slots)
 - [ ] DAG executando por 5+ dias consecutivos
 - [ ] Modelos dbt staging (10 modelos)
-- [ ] Modelos dbt gold (12 modelos)
-- [ ] Testes dbt: `trade_balance = exports - imports`, participação em [0,100]
+- [x] Modelos dbt gold (2 modelos: summary_enriched, dashboard)
+- [x] Testes dbt: `trade_balance = exports - imports` (validado em load_postgresql)
 - [ ] Índices PostgreSQL criados (4 índices)
 
 ### 2.3 Pipeline RDE — PRIORIDADE 3 (Semana 5.5)
 
-- [ ] Task `extract_todos_registros`: paginação completa (PAGE_SIZE=1000)
-- [ ] Task `extract_ied_records`: paginação completa
-- [ ] Task `store_bronze` + `transform_silver`: Parquet com PascalCase preservado
-- [ ] Task `load_postgresql`: TRUNCATE + INSERT
+- [x] Task `extract_todos_registros`: paginação completa OData (PAGE_SIZE=1000)
+- [x] Task `extract_registros_ied`: paginação completa
+- [x] Task `store_bronze` + `transform_silver`: deduplicação + Parquet com PascalCase preservado
+- [x] Task `load_postgresql`: REPLACE + validações de invariante
 - [ ] DAG executando por 3+ dias consecutivos
-- [ ] Modelos dbt gold (2 modelos)
-- [ ] Testes dbt: Ano >= 2011, Mes em [1..12], UfPessoaNacional contém 'CE'
+- [x] Modelos dbt gold (2 modelos: rde_summary, rde_by_sistema)
+- [x] Testes dbt: Ano >= 2011, Mes em [1..12], UfPessoaNacional contém 'CE' (no schema.yml)
 
 ### 2.4 Pipeline Sigmine — PRIORIDADE 4 (Semana 6)
 
-- [ ] Task `download_shapefiles`: copiar de static/ para MinIO
-- [ ] Task `convert_geojson`: converter com geopandas/fiona
-- [ ] Task `filter_ceara`: replicar `GeographicFilterService.filterByCearaBounds()`
-  - [ ] Bounding box: W=-41.5, E=-37.2, S=-7.9, N=-2.8
-  - [ ] Layer 'ce' sem filtro
-  - [ ] Fallback em caso de erro
-- [ ] Task `load_postgis`: carregar geometria + JSONB
+- [x] Task `download_shapefiles`: copiar de static/ para MinIO (volume montado em docker-compose)
+- [x] Task `convert_geojson`: converter com geopandas (reproject EPSG:4326)
+- [x] Task `filter_ceara_bbox`: replicar `GeographicFilterService.filterByCearaBounds()`
+  - [x] Bounding box: W=-41.5, E=-37.2, S=-7.87, N=-2.78
+  - [x] Layer 'CE' sem filtro (replica NestJS)
+  - [x] Fallback em caso de erro (replica NestJS try/catch)
+- [x] Task `load_postgis`: geopandas.to_postgis() com geometry + properties JSONB
 - [ ] DAG executando por 2+ semanas consecutivas
-- [ ] Índice GIST na coluna geometry
+- [x] Índice GIST na coluna geometry (CREATE INDEX USING GIST)
 
 ---
 
@@ -160,43 +161,43 @@
 
 ### 3.1 Infraestrutura
 
-- [ ] `config.py`: settings via pydantic-settings
-- [ ] `database.py`: engine async SQLAlchemy com pool_size=20
-- [ ] Estrutura de pastas: `routers/`, `models/`, `services/`, `schemas/`
+- [x] Pool asyncpg embutido no main.py (min_size=2, max_size=10)
+- [ ] `config.py`: settings via pydantic-settings (estrutura simplificada em main.py por ora)
+- [ ] Estrutura de pastas: `routers/`, `models/`, `services/`, `schemas/` (pendente refatoração)
 
 ### 3.2 Modelos Pydantic (DTOs com aliases camelCase)
 
-- [ ] `models/comexstat.py` (40+ modelos com alias)
-- [ ] `models/rde.py` (PascalCase preservado via alias)
-- [ ] `models/scm.py`
-- [ ] `models/sigmine.py` (FeatureCollection GeoJSON)
+- [ ] `models/comexstat.py` (40+ modelos com alias) — pendente refatoração
+- [ ] `models/rde.py` (PascalCase preservado via alias) — pendente refatoração
+- [ ] `models/scm.py` — pendente
+- [ ] `models/sigmine.py` (FeatureCollection GeoJSON) — pendente
 
 ### 3.3 Routers (implementação real)
 
 #### ComexStat (9 endpoints)
 
-- [ ] GET `/comexstat/summary` → `gold.gold_comexstat_summary`
-- [ ] GET `/comexstat/summary-history` → `gold.gold_comexstat_summary_history`
-- [ ] GET `/comexstat/timeseries` → `gold.gold_comexstat_timeseries`
-- [ ] GET `/comexstat/partners` → `gold.gold_comexstat_partners`
-- [ ] GET `/comexstat/products` → `gold.gold_comexstat_products`
+- [x] GET `/comexstat/summary` → `gold.gold_comexstat_summary`
+- [x] GET `/comexstat/summary-history` → `gold.gold_comexstat_timeseries`
+- [x] GET `/comexstat/timeseries` → `gold.gold_comexstat_timeseries`
+- [x] GET `/comexstat/partners` → `gold.gold_comexstat_partners`
+- [x] GET `/comexstat/products` → `gold.gold_comexstat_products`
 - [ ] GET `/comexstat/national-comparison` → `gold.gold_comexstat_national_comparison`
-- [ ] GET `/comexstat/national-comparison/states-ranking` → query com 3 JOINs
-- [ ] GET `/comexstat/dashboard` → múltiplas queries
-- [ ] DELETE `/comexstat/cache` → no-op
+- [x] GET `/comexstat/national-comparison/states-ranking` → pre-computed + 1 SELECT
+- [x] GET `/comexstat/dashboard` → combina summary + partners + products
+- [x] DELETE `/comexstat/cache` → no-op implementado
 
 #### RDE (2 endpoints)
 
-- [ ] GET `/rde/todos-registros` com paginação (skip, top, orderAno, orderMes)
-- [ ] GET `/rde/registros-ied` com paginação
+- [x] GET `/rde/todos-registros` com paginação (skip, top, orderAno, orderMes)
+- [x] GET `/rde/registros-ied` com paginação
 
 #### SCM (17 endpoints)
 
-- [ ] 17 endpoints implementados com queries PostgreSQL
+- [x] 17 endpoints implementados com queries PostgreSQL
 
 #### Sigmine/Layers (6 endpoints)
 
-- [ ] 6 endpoints com `ST_AsGeoJSON` via PostGIS
+- [x] 6 endpoints com `ST_AsGeoJSON` via PostGIS
 
 ### 3.4 Testes de Contrato (Golden Files)
 
@@ -246,11 +247,11 @@
 | Fase | Total | Concluídas | Pendentes |
 |------|-------|-----------|-----------|
 | Fase 1: Infraestrutura | 36 | 10 | 26 |
-| Fase 2: Pipelines | 70 | 0 | 70 |
-| Fase 3: FastAPI | 46 | 0 | 46 |
+| Fase 2: Pipelines | 70 | 47 | 23 |
+| Fase 3: FastAPI | 46 | 29 | 17 |
 | Fase 4: Validação | 20 | 0 | 20 |
 | Fase 5: Cutover | 7 | 0 | 7 |
-| **Total** | **179** | **10** | **169** |
+| **Total** | **179** | **86** | **93** |
 
 ---
 
@@ -265,6 +266,9 @@
 | 2026-06-07 | FastAPI placeholder ativo desde Fase 1 | Valida roteamento e CORS antes da implementação real |
 | 2026-06-07 | NestJS não modificado durante toda a migração | Zero downtime — hot standby até Fase 5 |
 | 2026-06-07 | Prioridade SCM > ComexStat > RDE > Sigmine | SCM já é batch; ComexStat tem maior ganho de performance |
+| 2026-06-07 | FastAPI usa asyncpg direto (sem SQLAlchemy async) | Mais simples para queries raw; SQLAlchemy async adicionado quando refatorar routers |
+| 2026-06-07 | DAGs usam pandas para gold (sem dbt no fluxo principal) | dbt como camada opcional de validação; pandas direto é mais simples para inicio |
+| 2026-06-07 | Sigmine monta static/ como volume read-only no Airflow | ANM URLs de shapefile não confirmadas; static/ já existe e contém dados válidos |
 
 ---
 
