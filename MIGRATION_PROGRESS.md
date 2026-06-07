@@ -128,10 +128,10 @@
 - [x] Task `load_postgresql`: validações de invariante (trade_balance, participation range)
 - [ ] Pool `comexstat_api` configurado no Airflow UI (max 3 slots)
 - [ ] DAG executando por 5+ dias consecutivos
-- [ ] Modelos dbt staging (10 modelos)
+- [x] Modelos dbt staging (12 modelos: ce_export/import, partners, heading/ncm, national totals + states)
 - [x] Modelos dbt gold (2 modelos: summary_enriched, dashboard)
 - [x] Testes dbt: `trade_balance = exports - imports` (validado em load_postgresql)
-- [ ] Índices PostgreSQL criados (4 índices)
+- [x] Índices PostgreSQL criados (15 índices em create_gold_indexes.sql)
 
 ### 2.3 Pipeline RDE — PRIORIDADE 3 (Semana 5.5)
 
@@ -201,9 +201,10 @@
 
 ### 3.4 Testes de Contrato (Golden Files)
 
-- [ ] Script `record_golden_responses.py`: gravar respostas do NestJS
-- [ ] Suite pytest com deepdiff: comparar campo a campo
-- [ ] 100% dos endpoints com respostas idênticas
+- [x] Script `record_golden_responses.py`: grava respostas do NestJS (38 casos de teste)
+- [x] Suite pytest `test_contract.py` com deep_diff: compara campo a campo (tolerância 0.01%)
+- [x] `TestCriticalInvariants`: health, trade_balance, participation [0,100], 27 estados, paginação RDE, GeoJSON
+- [ ] 100% dos endpoints com respostas idênticas (requer ambas as APIs rodando)
 - [ ] CI/CD integrado
 
 ---
@@ -211,7 +212,7 @@
 ## Fase 4 — Validação Paralela (Semanas 7-9)
 
 - [ ] nginx com `mirror` (shadow traffic NestJS → FastAPI)
-- [ ] Script `compare_shadow_responses.py` (deepdiff, a cada 15min)
+- [x] Script `record_golden_responses.py shadow` (deepdiff, a cada 15min — modo shadow embutido)
 - [ ] Zero divergências por 48h consecutivas
 - [ ] Benchmark: p99 < 200ms todos os endpoints
 - [ ] `/comexstat/national-comparison/states-ranking`: 100-600x mais rápido
@@ -247,11 +248,11 @@
 | Fase | Total | Concluídas | Pendentes |
 |------|-------|-----------|-----------|
 | Fase 1: Infraestrutura | 36 | 10 | 26 |
-| Fase 2: Pipelines | 70 | 47 | 23 |
-| Fase 3: FastAPI | 46 | 29 | 17 |
-| Fase 4: Validação | 20 | 0 | 20 |
+| Fase 2: Pipelines | 70 | 50 | 20 |
+| Fase 3: FastAPI | 46 | 32 | 14 |
+| Fase 4: Validação | 20 | 1 | 19 |
 | Fase 5: Cutover | 7 | 0 | 7 |
-| **Total** | **179** | **86** | **93** |
+| **Total** | **179** | **93** | **86** |
 
 ---
 
