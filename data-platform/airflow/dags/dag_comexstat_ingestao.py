@@ -96,14 +96,26 @@ def _query_comexstat(
 
 
 def _filter_by_period(df: pd.DataFrame, from_ym: str, to_ym: str) -> pd.DataFrame:
-    """Filtra DataFrame pelo período YYYY-MM (inclusive em ambos os lados)."""
+    """
+    Filtra DataFrame pelo período YYYY-MM (inclusive em ambos os lados).
+    Suporta dois tipos de registros:
+    - Com month > 0: dados mensais (monthDetail=True na API) → filtro por year*100+month
+    - Com month == 0: dados anuais (monthDetail=False) → filtro por year apenas
+    """
     from_y, from_m = int(from_ym[:4]), int(from_ym[5:7])
     to_y, to_m = int(to_ym[:4]), int(to_ym[5:7])
-    mask = (
+
+    monthly_mask = df["month"] > 0
+    yearly_mask = df["month"] == 0
+
+    monthly_rows = df[monthly_mask & (
         (df["year"] * 100 + df["month"] >= from_y * 100 + from_m)
         & (df["year"] * 100 + df["month"] <= to_y * 100 + to_m)
-    )
-    return df[mask]
+    )]
+    yearly_rows = df[yearly_mask & (
+        (df["year"] >= from_y) & (df["year"] <= to_y)
+    )]
+    return pd.concat([monthly_rows, yearly_rows], ignore_index=True)
 
 
 def _normalize_row(row: dict) -> dict:
@@ -276,12 +288,16 @@ def dag_comexstat_ingestao():
 
     @task(pool=API_POOL)
     def extract_national_export() -> str:
-        """Total nacional de exportações (sem filtro estado) para calcular participação CE."""
+        """
+        Total nacional de exportações mensais para calcular participação CE com precisão mensal.
+        Usa monthDetail=True para que _filter_by_period funcione corretamente em todos
+        os 3 tipos de período (current_month, ytd, last_year).
+        """
         periods = get_comexstat_periods()
         data = _query_comexstat(
             "export",
             periods["period_history"],
-            month_detail=False,
+            month_detail=True,  # necessário para filtrar por mês específico
             metrics=["metricFOB"],
         )
         key = f"comexstat/national_export_total_{periods['current_year']}_{periods['current_month']:02d}.json"
@@ -290,12 +306,12 @@ def dag_comexstat_ingestao():
 
     @task(pool=API_POOL)
     def extract_national_import() -> str:
-        """Total nacional de importações."""
+        """Total nacional de importações mensais."""
         periods = get_comexstat_periods()
         data = _query_comexstat(
             "import",
             periods["period_history"],
-            month_detail=False,
+            month_detail=True,  # necessário para filtrar por mês específico
             metrics=["metricFOB", "metricCIF"],
         )
         key = f"comexstat/national_import_total_{periods['current_year']}_{periods['current_month']:02d}.json"
@@ -450,7 +466,9 @@ def dag_comexstat_ingestao():
             parquet_key = f"{prefix}/{name}.parquet"
             upload_parquet("staging-data", parquet_key, df)
 
-        return f"staging-data/{prefix}/"
+        # Retorna apenas o prefixo dentro do bucket "staging-data" (sem incluir o nome do bucket)
+        # As tasks compute_gold_* usam: download_parquet("staging-data", f"{silver_path}{name}.parquet")
+        return f"{prefix}/"
 
     # =========================================================================
     # FASE 3: COMPUTE GOLD (pandas → PostgreSQL)
@@ -769,11 +787,12 @@ def dag_comexstat_ingestao():
                 par_f = _filter_by_period(par_df, p_from, p_to)
                 prod_f = _filter_by_period(prod_df, p_from, p_to)
 
-                nat_total = n_f["metric_fob"].sum()
-
-                # Agregação por estado
+                # Agrega por estado — soma usada tanto para ranking quanto para total nacional
+                # (consistente: total nacional = soma de todos os estados do mesmo dataset)
+                # n_f (com monthDetail=True) é referência cruzada mais precisa quando disponível
                 states_agg = s_f.groupby("state", as_index=False)["metric_fob"].sum()
                 states_sorted = states_agg.sort_values("metric_fob", ascending=False).reset_index(drop=True)
+                nat_total = states_sorted["metric_fob"].sum() or n_f["metric_fob"].sum()
 
                 # Participação e ranking do CE
                 ce_mask = states_sorted["state"].str.contains("Cear", case=False, na=False)

@@ -1,0 +1,62 @@
+version: 2
+
+sources:
+  - name: silver_comexstat
+    schema: staging
+    description: >
+      Dados silver do ComexStat pré-carregados pelo dag_comexstat_ingestao.py.
+      Os Parquets são lidos do MinIO e carregados em tabelas temporárias aqui.
+      Nota: em produção, o DAG cria as tabelas staging diretamente via pandas.
+      Os modelos dbt aqui documentam e validam essa camada.
+
+models:
+  - name: stg_comexstat_ce_export
+    description: Exportações do Ceará com detalhes mensais (monthDetail=True)
+    columns:
+      - name: year
+        tests: [not_null]
+      - name: month
+        tests:
+          - not_null
+          - accepted_values:
+              values: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+      - name: metric_fob
+        tests: [not_null]
+
+  - name: stg_comexstat_ce_import
+    description: Importações do Ceará com detalhes mensais
+    columns:
+      - name: year
+        tests: [not_null]
+      - name: metric_fob
+        tests: [not_null]
+
+  - name: stg_comexstat_ce_partners_export
+    description: Exportações CE por país parceiro (aggregation by country)
+
+  - name: stg_comexstat_ce_partners_import
+    description: Importações CE por país parceiro
+
+  - name: stg_comexstat_ce_products_heading_export
+    description: Exportações CE por posição SH (heading 4 dígitos)
+
+  - name: stg_comexstat_ce_products_heading_import
+    description: Importações CE por posição SH
+
+  - name: stg_comexstat_ce_products_ncm_export
+    description: Exportações CE por NCM (8 dígitos)
+
+  - name: stg_comexstat_ce_products_ncm_import
+    description: Importações CE por NCM
+
+  - name: stg_comexstat_national_export
+    description: Exportações nacionais totais mensais (para participação CE)
+
+  - name: stg_comexstat_national_import
+    description: Importações nacionais totais mensais
+
+  - name: stg_comexstat_national_export_states
+    description: Exportações nacionais por estado (para states ranking)
+
+  - name: stg_comexstat_national_import_states
+    description: Importações nacionais por estado
