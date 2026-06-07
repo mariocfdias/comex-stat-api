@@ -161,16 +161,17 @@
 
 ### 3.1 Infraestrutura
 
-- [x] Pool asyncpg embutido no main.py (min_size=2, max_size=10)
-- [ ] `config.py`: settings via pydantic-settings (estrutura simplificada em main.py por ora)
-- [ ] Estrutura de pastas: `routers/`, `models/`, `services/`, `schemas/` (pendente refatoração)
+- [x] Pool asyncpg em `database.py` (min_size=2, max_size=10) + helpers fetch_all/one/val
+- [x] `config.py`: settings via pydantic-settings (DATABASE_URL, pool, CORS, asyncpg_url)
+- [x] Estrutura de pastas: `routers/` (4 módulos) + `models/` + `database.py` + `responses.py`
 
 ### 3.2 Modelos Pydantic (DTOs com aliases camelCase)
 
-- [ ] `models/comexstat.py` (40+ modelos com alias) — pendente refatoração
-- [ ] `models/rde.py` (PascalCase preservado via alias) — pendente refatoração
-- [ ] `models/scm.py` — pendente
-- [ ] `models/sigmine.py` (FeatureCollection GeoJSON) — pendente
+- [x] `models/comexstat.py` (Summary, Partner, Product, StateRanking, Dashboard, etc. — alias camelCase)
+- [x] `models/rde.py` (PascalCase preservado — RdeRecord / RdeRecordIed)
+- [x] `models/scm.py` (ScmHealth, ScmAnalyticsByUf + ScmRow dinâmico)
+- [x] `models/sigmine.py` (Feature / FeatureCollection GeoJSON)
+- [x] `models/common.py` (CamelModel base + envelopes SuccessResponse/PaginatedResponse)
 
 ### 3.3 Routers (implementação real)
 
@@ -181,7 +182,7 @@
 - [x] GET `/comexstat/timeseries` → `gold.gold_comexstat_timeseries`
 - [x] GET `/comexstat/partners` → `gold.gold_comexstat_partners`
 - [x] GET `/comexstat/products` → `gold.gold_comexstat_products`
-- [ ] GET `/comexstat/national-comparison` → `gold.gold_comexstat_national_comparison`
+- [x] GET `/comexstat/national-comparison` → `gold.gold_comexstat_national_comparison`
 - [x] GET `/comexstat/national-comparison/states-ranking` → pre-computed + 1 SELECT
 - [x] GET `/comexstat/dashboard` → combina summary + partners + products
 - [x] DELETE `/comexstat/cache` → no-op implementado
@@ -249,10 +250,10 @@
 |------|-------|-----------|-----------|
 | Fase 1: Infraestrutura | 36 | 10 | 26 |
 | Fase 2: Pipelines | 70 | 50 | 20 |
-| Fase 3: FastAPI | 46 | 32 | 14 |
+| Fase 3: FastAPI | 47 | 40 | 7 |
 | Fase 4: Validação | 20 | 1 | 19 |
 | Fase 5: Cutover | 7 | 0 | 7 |
-| **Total** | **179** | **93** | **86** |
+| **Total** | **180** | **101** | **79** |
 
 ---
 
@@ -270,6 +271,9 @@
 | 2026-06-07 | FastAPI usa asyncpg direto (sem SQLAlchemy async) | Mais simples para queries raw; SQLAlchemy async adicionado quando refatorar routers |
 | 2026-06-07 | DAGs usam pandas para gold (sem dbt no fluxo principal) | dbt como camada opcional de validação; pandas direto é mais simples para inicio |
 | 2026-06-07 | Sigmine monta static/ como volume read-only no Airflow | ANM URLs de shapefile não confirmadas; static/ já existe e contém dados válidos |
+| 2026-06-07 | FastAPI refatorado em config/database/responses + routers/ + models/ | Separação de responsabilidades; main.py vira app factory enxuto |
+| 2026-06-07 | `services/`/`schemas/` consolidados em `database.py` + `models/` | Queries raw não justificam camada de serviço; DTOs ficam em models/ |
+| 2026-06-07 | `response_model_exclude_none=True` só no /timeseries | Paridade com NestJS: 'month' é omitido no modo anual |
 
 ---
 
