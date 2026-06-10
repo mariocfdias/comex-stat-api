@@ -1,0 +1,30 @@
+# profiles.yml.example
+# Copie para ~/.dbt/profiles.yml ou para data-platform/dbt/profiles.yml
+# e preencha com os valores corretos.
+
+comexstat:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: localhost        # usar 'postgres' dentro do docker-compose
+      port: 5432
+      user: dbt_user
+      password: dbt_user_pass
+      dbname: comexstat_platform
+      schema: gold           # schema padrão de saída (tabelas gold)
+      threads: 4
+      keepalives_idle: 0
+      connect_timeout: 10
+      search_path: "gold,staging,raw,public"
+
+    prod:
+      type: postgres
+      host: "{{ env_var('POSTGRES_HOST') }}"
+      port: "{{ env_var('POSTGRES_PORT', '5432') | int }}"
+      user: "{{ env_var('DBT_USER', 'dbt_user') }}"
+      password: "{{ env_var('DBT_USER_PASSWORD') }}"
+      dbname: "{{ env_var('POSTGRES_DB', 'comexstat_platform') }}"
+      schema: gold
+      threads: 8
+      keepalives_idle: 0

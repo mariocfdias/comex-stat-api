@@ -1,0 +1,87 @@
+version: 2
+
+sources:
+  - name: raw_scm
+    schema: raw
+    description: Dados brutos do Sistema de Cadastro Mineiro (ANM) — carregados pelo dag_scm_ingestao.py
+    tables:
+      - name: scm_processo
+        description: Processos minerais do Ceará (filtro SGUF='CE' aplicado na ingestão)
+        columns:
+          - name: numero
+            description: Número do processo
+            tests: [not_null, unique]
+          - name: fase_id
+            description: ID da fase do processo
+            tests: [not_null]
+          - name: tipo_id
+            description: ID do tipo de requerimento
+            tests: [not_null]
+          - name: area_ha
+            description: Área em hectares
+
+      - name: scm_fase_processo
+        description: Tabela de referência das fases de processo
+        columns:
+          - name: id
+            tests: [not_null, unique]
+          - name: nome
+            tests: [not_null]
+
+      - name: scm_tipo_requerimento
+        description: Tabela de referência dos tipos de requerimento
+        columns:
+          - name: id
+            tests: [not_null, unique]
+          - name: nome
+            tests: [not_null]
+
+      - name: scm_municipio
+        description: Municípios do Ceará associados a processos minerais
+        columns:
+          - name: id
+            tests: [not_null, unique]
+
+      - name: scm_substancia
+        description: Substâncias minerais requeridas
+        columns:
+          - name: id
+            tests: [not_null, unique]
+
+      - name: scm_processo_municipio
+        description: Relação N:N entre processos e municípios
+        columns:
+          - name: processo_numero
+            tests: [not_null]
+          - name: municipio_id
+            tests: [not_null]
+
+      - name: scm_processo_substancia
+        description: Relação N:N entre processos e substâncias
+        columns:
+          - name: processo_numero
+            tests: [not_null]
+          - name: substancia_id
+            tests: [not_null]
+
+models:
+  - name: stg_scm_processos
+    description: Processos SCM com joins básicos para fase e tipo
+    columns:
+      - name: numero
+        tests: [not_null, unique]
+
+  - name: stg_scm_processos_municipios
+    description: Processos com municípios expandidos
+
+  - name: stg_scm_processos_substancias
+    description: Processos com substâncias expandidas
+
+  - name: stg_scm_fases
+    description: Fases limpas para referência
+
+  - name: stg_scm_tipos
+    description: Tipos de requerimento para referência
+
+  - name: stg_scm_municipios
+    description: Municípios para referência
